@@ -1,0 +1,10 @@
+streamlit
+groq
+python-dotenv
+langchain
+langchain-community
+qdrant-client
+sentence-transformers
+transformers
+torch
+sentencepiece

@@ -102,34 +102,41 @@ Subquestions:
     return final
 
 
+# ── UPDATED: proper system/user role split instead of inline <|system|> tags ──
+
 def build_prompt(subquery, docs):
-    context = []
-    for doc in docs:
+    context_blocks = []
+    for i, doc in enumerate(docs, 1):
         passage = doc.page_content.strip().replace("\n", " ")
-        context.append(f"- {passage}")
+        context_blocks.append(f"[{i}] {passage}")
 
-    return f"""<|system|>
-You are a helpful and precise medical assistant. Use only the provided medical textbook excerpts to answer the user's question.
-Never add outside knowledge. If information is missing, state that clearly.
+    system_msg = (
+    "You are a precise medical assistant. "
+    "Answer strictly using the numbered source excerpts below. "
+    "If the answer isn't in the sources, say: 'Not found in provided sources.'"
+    )
 
-<|user|>
-Question:
-{subquery}
+    user_msg = (
+    f"Sources:\n{chr(10).join(context_blocks)}\n\n"
+    f"Question: {subquery}\n\n"
+    "Give a complete and accurate answer based only on the sources. "
+    "Be as detailed as needed do not omit clinically relevant information. "
+    "Cite source numbers inline where relevant."
+    )
 
-Medical Textbook Sources:
-{chr(10).join(context)}
-
-Provide a clear, concise, and medically accurate answer.
-<|assistant|>"""
+    return system_msg, user_msg
 
 
-def stream_groq_answer(prompt):
+def stream_groq_answer(system_msg, user_msg):
     response = st.session_state["groq_client"].chat.completions.create(
         model=GROQ_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
+        messages=[
+            {"role": "system", "content": system_msg},
+            {"role": "user",   "content": user_msg},
+        ],
+        temperature=0.1,      # Lower = more deterministic for medical facts
         top_p=0.9,
-        max_tokens=400,
+        max_tokens=300,       # Tightened to match 2–4 sentence output
         stream=True,
     )
 
@@ -137,6 +144,8 @@ def stream_groq_answer(prompt):
         delta = chunk.choices[0].delta.content
         if delta:
             yield delta
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 @st.cache_resource(show_spinner=False)
@@ -201,10 +210,11 @@ if st.button("Ask"):
         scores = st.session_state["reranker"].predict([(subquery, doc.page_content) for doc in docs])
         top_docs = [doc for doc, _ in sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)[:2]]
 
-        prompt = build_prompt(subquery, top_docs)
+        # ── UPDATED: unpack tuple returned by build_prompt ──
+        system_msg, user_msg = build_prompt(subquery, top_docs)
         answer_box = st.empty()
         answer_text = ""
-        for token in stream_groq_answer(prompt):
+        for token in stream_groq_answer(system_msg, user_msg):
             answer_text += token
             answer_box.markdown(answer_text)
 

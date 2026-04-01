@@ -3,6 +3,8 @@ groq
 python-dotenv
 langchain
 langchain-community
+langchain-huggingface
+langchain-qdrant
 qdrant-client
 sentence-transformers
 transformers

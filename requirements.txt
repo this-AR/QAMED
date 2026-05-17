@@ -11,3 +11,4 @@ transformers
 torch
 sentencepiece
 langchain-text-splitters
+pysbd

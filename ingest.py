@@ -3,6 +3,7 @@ import os
 import uuid
 
 from dotenv import load_dotenv
+import pysbd
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -16,6 +17,8 @@ load_dotenv()
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 DEFAULT_COLLECTION = os.getenv("QDRANT_COLLECTION", "medical_documents")
+
+SENTENCE_SEGMENTER = pysbd.Segmenter(language="en", clean=False)
 
 # 🔥 Page offset (VERY IMPORTANT)
 PAGE_OFFSET = 15  # Book page 1 = PDF page 16
@@ -86,6 +89,14 @@ def detect_labels(text):
     return labels or ["@general"]
 
 
+def segment_text_with_pysbd(text):
+    if not text:
+        return ""
+    sentences = SENTENCE_SEGMENTER.segment(text)
+    # Keep sentence boundaries explicit so chunking respects medical abbreviations.
+    return "\n".join(s.strip() for s in sentences if s and s.strip())
+
+
 def load_and_chunk_pdf(pdf_path, chunk_size, chunk_overlap):
     loader = PyMuPDFLoader(pdf_path)
     pages = loader.load()
@@ -104,7 +115,11 @@ def load_and_chunk_pdf(pdf_path, chunk_size, chunk_overlap):
 
         chapter = get_chapter_by_page(pdf_page)
 
+        original_text = page.page_content
+        page.page_content = segment_text_with_pysbd(original_text)
+
         chunks = splitter.split_documents([page])
+        page.page_content = original_text
 
         for j, chunk in enumerate(chunks):
             chunk.metadata = {

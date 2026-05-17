@@ -227,6 +227,7 @@ Set the following variables (local dev or Hugging Face Spaces secrets):
 - `QDRANT_API_KEY` - Qdrant API key
 - `GROQ_API_KEY` - Groq API key
 - `GROQ_MODEL` - Optional, e.g., `llama-3.1-70b-versatile`
+- `PROMPT_VERSION` - Optional default prompt template version (`v1` or `v2`)
 
 ## 🖥️ Streamlit App
 
@@ -241,6 +242,7 @@ The app provides:
 - Streaming answer display
 - Source citations from Qdrant
 - 1-10 rating feedback per question
+- Prompt version selection (`v1`/`v2`) with per-answer version traceability
 
 ## 🚀 Deploy on Hugging Face Spaces
 

@@ -10,3 +10,4 @@ sentence-transformers
 transformers
 torch
 sentencepiece
+langchain-text-splitters

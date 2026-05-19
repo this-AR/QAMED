@@ -103,6 +103,45 @@ def extract_subquestions(query: str) -> list[str]:
     return result if result else [query]
 
 
+
+def classify_query(query: str) -> str:
+    """Classify the query using the Groq API as SIMPLE or COMPLEX.
+
+    Returns a tuple: (label, raw_text)
+    label: 'SIMPLE' or 'COMPLEX' (defaults to 'COMPLEX' on ambiguity)
+    raw_text: raw model output
+    """
+    prompt = (
+        "Classify this MBBS query as SIMPLE or COMPLEX.\n\n"
+        "SIMPLE:\n"
+        "- single fact\n"
+        "- direct definition\n"
+        "- localized retrieval\n\n"
+        "COMPLEX:\n"
+        "- multi-hop reasoning\n"
+        "- comparison\n"
+        "- requires synthesis\n\n"
+        f"Query:\n{query}\n\n"
+        "Answer with a single token: SIMPLE or COMPLEX. Do not add any other text."
+    )
+
+    try:
+        response = st.session_state["groq_client"].chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": "You are an instruction-following classifier."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0,
+            max_tokens=4,
+        )
+        out = response.choices[0].message.content.strip()
+        label = "SIMPLE" if re.search(r"SIMPLE", out, re.IGNORECASE) else "COMPLEX"
+        return label, out
+    except Exception:
+        return "COMPLEX", ""
+
+
 # ── Prompt Builder ─────────────────────────────────────────────────────────────
 def build_prompt(subquery: str, docs: list, prompt_version: str) -> tuple[str, str, str]:
     context_blocks = []
@@ -200,6 +239,57 @@ if st.button("Ask", type="primary") and query.strip():
     st.write("---")
 
     subqueries = extract_subquestions(query) if use_decomposition else [query]
+
+    # Always run Groq classifier to decide SIMPLE vs COMPLEX
+    classification_label, classifier_raw = classify_query(query)
+
+    # log the classification decision (will also be logged per-answer when RAG runs)
+    st.session_state["prompt_runs"].append(
+        {
+            "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "query": query,
+            "subquery": None,
+            "prompt_version": None,
+            "model": "groq-classifier",
+            "sources_used": 0,
+            "classification": classification_label,
+            "classifier_output": classifier_raw,
+            "skipped_rag": classification_label == "SIMPLE",
+        }
+    )
+
+    if classification_label == "SIMPLE":
+        st.info("Detected SIMPLE question — returning extracted definition without full RAG generation.")
+
+        retriever = st.session_state["vectorstore"].as_retriever(search_kwargs={"k": 5})
+        docs = retriever.invoke("query: " + query)
+
+        if not docs:
+            st.warning("No matching documents found for the query.")
+            st.stop()
+
+        # Rerank small set and pick top
+        try:
+            scores = st.session_state["reranker"].predict(
+                [(query, doc.page_content) for doc in docs]
+            )
+            top_doc = [doc for doc, _ in sorted(zip(docs, scores), key=lambda x: x[1], reverse=True)][0]
+        except Exception:
+            top_doc = docs[0]
+
+        # extract a short definition (first 2 sentences)
+        sentences = re.split(r'(?<=[.!?])\s+', top_doc.page_content.strip())
+        short_answer = " ".join(sentences[:2]).strip()
+
+        st.subheader("Extracted answer (SIMPLE)")
+        st.markdown(short_answer)
+
+        meta = top_doc.metadata or {}
+        st.markdown(
+            f"**Source:** Chapter: {meta.get('chapter','N/A')} | Page: {meta.get('page_number','N/A')} | Book: {meta.get('book_name','N/A')}"
+        )
+
+        st.stop()
 
     if not subqueries:
         st.warning("No subquestions generated. Try rephrasing your query.")

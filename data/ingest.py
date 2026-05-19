@@ -1,8 +1,17 @@
+"""
+QAMed — PDF Ingestion Pipeline
+
+Loads a medical PDF, chunks it with sentence-aware splitting,
+tags metadata, and uploads embeddings to Qdrant Cloud.
+
+Usage:
+    python -m data.ingest --pdf path/to/book.pdf [--collection name] [--chunk-size 250] [--chunk-overlap 50]
+"""
+
 import argparse
 import os
 import uuid
 
-from dotenv import load_dotenv
 import pysbd
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyMuPDFLoader
@@ -11,12 +20,12 @@ from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
-# Load environment variables
-load_dotenv()
-
-QDRANT_URL = os.getenv("QDRANT_URL")
-QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
-DEFAULT_COLLECTION = os.getenv("QDRANT_COLLECTION", "medical_documents")
+from config import (
+    QDRANT_URL,
+    QDRANT_API_KEY,
+    COLLECTION_NAME,
+    EMBEDDING_MODEL_NAME,
+)
 
 SENTENCE_SEGMENTER = pysbd.Segmenter(language="en", clean=False)
 
@@ -149,7 +158,7 @@ def ensure_collection(client, collection_name, vector_size):
 def parse_args():
     parser = argparse.ArgumentParser(description="Ingest a PDF into Qdrant Cloud.")
     parser.add_argument("--pdf", required=True, help="Path to the medical PDF")
-    parser.add_argument("--collection", default=DEFAULT_COLLECTION)
+    parser.add_argument("--collection", default=COLLECTION_NAME)
     parser.add_argument("--chunk-size", type=int, default=250)
     parser.add_argument("--chunk-overlap", type=int, default=50)
     return parser.parse_args()
@@ -170,7 +179,7 @@ def main():
     )
 
     embedding_model = HuggingFaceEmbeddings(
-        model_name="pritamdeka/S-PubMedBert-MS-MARCO"
+        model_name=EMBEDDING_MODEL_NAME
     )
 
     ensure_collection(qdrant_client, args.collection, vector_size=768)

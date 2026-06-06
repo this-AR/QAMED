@@ -5,5 +5,9 @@ __pycache__/
 *.pyc
 .env
 .vscode/
-PROJECT_KNOWLEDGE_GRAPH.md
-CODEBASE_KNOWLEDGE_BASE.md
+QAMed_Architecture_Roadmap.md
+agents.md
+.tmp/
+credentials.json
+token.json
+PROJECT_OVERVIEW.md

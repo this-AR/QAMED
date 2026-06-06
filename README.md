@@ -6,6 +6,8 @@
 
 This project implements a comprehensive Medical RAG (Retrieval-Augmented Generation) system that processes medical textbooks and provides accurate, contextual answers to complex medical questions. The system leverages Qdrant vector database for efficient document storage and retrieval, combined with medical-specific embeddings and language models to ensure high-quality medical information retrieval. Generation is handled via Groq LLMs with token streaming support.
 
+For a detailed file-by-file overview, see [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
+
 The system addresses the critical need for accurate medical information access by breaking down complex medical queries into focused sub-questions, retrieving relevant textbook content, and generating well-sourced answers. This approach ensures that medical professionals, students, and researchers can quickly access precise information from authoritative medical texts.
 
 Key innovations include intelligent query decomposition, medical-specific content labeling, chapter-aware document organization, and a sophisticated reranking pipeline that maximizes retrieval accuracy for medical domain knowledge.

@@ -5,6 +5,7 @@ langchain
 langchain-community
 langchain-huggingface
 langchain-qdrant
+langchain-groq
 qdrant-client
 sentence-transformers
 transformers
@@ -12,3 +13,8 @@ torch
 sentencepiece
 langchain-text-splitters
 pysbd
+# v1.5 additions
+redis
+langfuse
+ragas
+datasets

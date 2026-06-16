@@ -26,3 +26,17 @@ EMBEDDING_MODEL_NAME = "pritamdeka/S-PubMedBert-MS-MARCO"
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 DEFAULT_PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v1")
+
+# ── Cache (v1.5) ──────────────────────────────────────────────────────────────
+# REDIS_URL is optional. If absent, exact-match cache is silently disabled.
+# Example: redis://default:<password>@<host>:<port>
+REDIS_URL = os.getenv("REDIS_URL")
+CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "86400"))  # 24 hours
+SEMANTIC_CACHE_THRESHOLD = float(os.getenv("SEMANTIC_CACHE_THRESHOLD", "0.92"))
+SEMANTIC_CACHE_COLLECTION = os.getenv("SEMANTIC_CACHE_COLLECTION", "query_cache")
+
+# ── Langfuse Tracing (v1.5) ───────────────────────────────────────────────────
+# All three are optional. If absent, tracing is silently disabled.
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
+LANGFUSE_HOST = os.getenv("LANGFUSE_HOST")  # defaults to Langfuse Cloud if unset

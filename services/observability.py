@@ -82,14 +82,12 @@ class LangfuseTracer:
             with tracer.trace("query-pipeline", query=user_query) as tr:
                 tracer.log_generation(tr, ...)
         """
-        t = self._client.trace(name=name, input=query)
-        try:
-            yield t
-        except Exception:
-            t.update(status_message="error")
-            raise
-        finally:
-            t.update(output=None)  # marks trace complete
+        with self._client.start_as_current_observation(as_type="span", name=name, input=query) as span:
+            try:
+                yield span
+            except Exception:
+                span.update(status_message="error")
+                raise
 
     def log_generation(
         self,
@@ -113,17 +111,22 @@ class LangfuseTracer:
             latency_ms:  Round-trip latency in milliseconds.
             metadata:    Optional extra fields (e.g. cache_hit, prompt_version).
         """
+        if trace is None:
+            return
         try:
-            trace.generation(
+            with trace.start_as_current_observation(
+                as_type="generation",
                 name=name,
                 model=model,
                 input=prompt,
-                output=completion,
-                metadata={
-                    "latency_ms": round(latency_ms, 1),
-                    **(metadata or {}),
-                },
-            )
+            ) as gen:
+                gen.update(
+                    output=completion,
+                    metadata={
+                        "latency_ms": round(latency_ms, 1),
+                        **(metadata or {}),
+                    },
+                )
         except Exception as exc:
             logger.warning("Langfuse log_generation failed: %s", exc)
 

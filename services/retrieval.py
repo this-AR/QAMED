@@ -2,10 +2,10 @@
 QAMed — Retrieval & Reranking Service
 
 Handles model/client initialization, document retrieval, and reranking.
-Keeps @st.cache_resource for Streamlit-specific caching.
+Pure Python — no UI framework dependencies. Caching is the caller's responsibility
+(e.g. app.py uses @st.cache_resource when running under Streamlit).
 """
 
-import streamlit as st
 from groq import Groq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
@@ -22,7 +22,6 @@ from config import (
 
 
 # ── Model + Client Loading ───────────────────────────────────────────────────
-@st.cache_resource(show_spinner=False)
 def load_models_and_clients():
     """Initialize and cache all external clients and models.
 

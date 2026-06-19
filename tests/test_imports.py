@@ -23,8 +23,9 @@ def test_config_imports():
     from config import (
         QDRANT_URL, QDRANT_API_KEY, GROQ_API_KEY, GROQ_MODEL,
         COLLECTION_NAME, EMBEDDING_MODEL_NAME, DEFAULT_PROMPT_VERSION,
+        REDIS_URL, CACHE_TTL_SECONDS, SEMANTIC_CACHE_THRESHOLD,
+        SEMANTIC_CACHE_COLLECTION, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST,
     )
-    # These should be strings (possibly None if .env is missing, but importable)
     assert isinstance(GROQ_MODEL, str)
     assert isinstance(COLLECTION_NAME, str)
     assert isinstance(EMBEDDING_MODEL_NAME, str)
@@ -55,14 +56,35 @@ def test_services_retrieval_imports():
     assert callable(rerank_docs)
 
 
+def test_services_cache_imports():
+    from services.cache import check_cache, store_in_cache, clear_cache, CacheResult
+    assert callable(check_cache)
+    assert callable(store_in_cache)
+    assert callable(clear_cache)
+
+
+def test_services_guardrails_imports():
+    from services.guardrails import check_hallucination, GuardrailResult
+    assert callable(check_hallucination)
+
+
+def test_services_observability_imports():
+    from services.observability import get_tracer, Timer, LangfuseTracer, NoOpTracer
+    assert callable(get_tracer)
+
+
 def test_ui_components_imports():
     from ui.components import (
         render_simple_answer, render_sources, render_rating, render_run_history,
+        render_cache_badge, render_guardrail_badge, render_ragas_scores,
     )
     assert callable(render_simple_answer)
     assert callable(render_sources)
     assert callable(render_rating)
     assert callable(render_run_history)
+    assert callable(render_cache_badge)
+    assert callable(render_guardrail_badge)
+    assert callable(render_ragas_scores)
 
 
 def test_data_ingest_imports():
@@ -73,6 +95,11 @@ def test_data_ingest_imports():
     assert callable(load_and_chunk_pdf)
     assert callable(detect_labels)
     assert len(CHAPTER_MAP) > 0
+
+
+def test_evaluation_ragas_imports():
+    from evaluation.ragas_eval import run_eval_async, RagasScores
+    assert callable(run_eval_async)
 
 
 def test_rerank_docs_empty():
@@ -103,8 +130,12 @@ if __name__ == "__main__":
         test_prompts_imports,
         test_services_llm_imports,
         test_services_retrieval_imports,
+        test_services_cache_imports,
+        test_services_guardrails_imports,
+        test_services_observability_imports,
         test_ui_components_imports,
         test_data_ingest_imports,
+        test_evaluation_ragas_imports,
         test_rerank_docs_empty,
         test_detect_labels,
         test_resolve_prompt_version_edge_cases,

@@ -18,3 +18,4 @@ redis
 langfuse
 ragas
 datasets
+pytest

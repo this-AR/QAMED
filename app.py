@@ -12,7 +12,7 @@ v1.5 additions wired here:
 """
 
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import streamlit as st
 
@@ -51,10 +51,16 @@ if "prompt_runs" not in st.session_state:
 if "ragas_results" not in st.session_state:
     st.session_state["ragas_results"] = {}
 
+# ── Cached wrapper for model loading (keeps heavy models alive across Streamlit reruns) ──
+@st.cache_resource(show_spinner=False)
+def _cached_load_models():
+    return load_models_and_clients()
+
+
 # ── Load Models on Startup ────────────────────────────────────────────────────
 with st.spinner("Loading models and connections..."):
     try:
-        groq_client, vectorstore, reranker = load_models_and_clients()
+        groq_client, vectorstore, reranker = _cached_load_models()
         st.session_state["groq_client"] = groq_client
         st.session_state["vectorstore"] = vectorstore
         st.session_state["reranker"] = reranker
@@ -114,7 +120,7 @@ if st.button("Ask", type="primary") and query.strip():
                     st.markdown(cache_result.sources_text)
             st.session_state["prompt_runs"].append(
                 {
-                    "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                    "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
                     "query": query,
                     "subquery": None,
                     "prompt_version": cache_result.prompt_version,
@@ -158,7 +164,7 @@ if st.button("Ask", type="primary") and query.strip():
         # Log classification decision
         st.session_state["prompt_runs"].append(
             {
-                "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
                 "query": query,
                 "subquery": None,
                 "prompt_version": None,
@@ -274,7 +280,7 @@ if st.button("Ask", type="primary") and query.strip():
             # ── Log run ───────────────────────────────────────────────────
             st.session_state["prompt_runs"].append(
                 {
-                    "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                    "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
                     "query": query,
                     "subquery": subquery,
                     "prompt_version": used_prompt_version,

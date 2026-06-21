@@ -14,7 +14,11 @@ import uuid
 
 import pysbd
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyMuPDFLoader
+from langchain_docling.loader import DoclingLoader, ExportType
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.base_models import InputFormat
+from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
@@ -107,8 +111,26 @@ def segment_text_with_pysbd(text):
 
 
 def load_and_chunk_pdf(pdf_path, chunk_size, chunk_overlap):
-    loader = PyMuPDFLoader(pdf_path)
-    pages = loader.load()
+    # Fix for "AssertionError: Page backend was unloaded" on large medical PDFs
+    pipeline_options = PdfPipelineOptions()
+    pipeline_options.accelerator_options.num_threads = 1
+    
+    converter = DocumentConverter(
+        allowed_formats=[InputFormat.PDF],
+        format_options={
+            InputFormat.PDF: PdfFormatOption(
+                pipeline_options=pipeline_options,
+                backend=PyPdfiumDocumentBackend
+            )
+        }
+    )
+
+    loader = DoclingLoader(
+        file_path=pdf_path,
+        export_type=ExportType.DOC_CHUNKS,
+        converter=converter
+    )
+    docs = loader.load()
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
@@ -118,17 +140,21 @@ def load_and_chunk_pdf(pdf_path, chunk_size, chunk_overlap):
     chunked_docs = []
     book_name = os.path.basename(pdf_path)
 
-    for i, page in enumerate(pages):
-        pdf_page = i + 1
+    for i, doc in enumerate(docs):
+        # Extract page number robustly from Docling metadata
+        metadata = doc.metadata
+        dl_meta = metadata.get("dl_meta", {})
+        page_numbers = dl_meta.get("page_numbers", [])
+        pdf_page = page_numbers[0] if page_numbers else metadata.get("page", 1)
+        
         book_page = pdf_page - PAGE_OFFSET
-
         chapter = get_chapter_by_page(pdf_page)
 
-        original_text = page.page_content
-        page.page_content = segment_text_with_pysbd(original_text)
+        original_text = doc.page_content
+        doc.page_content = segment_text_with_pysbd(original_text)
 
-        chunks = splitter.split_documents([page])
-        page.page_content = original_text
+        chunks = splitter.split_documents([doc])
+        doc.page_content = original_text
 
         for j, chunk in enumerate(chunks):
             chunk.metadata = {
@@ -137,7 +163,7 @@ def load_and_chunk_pdf(pdf_path, chunk_size, chunk_overlap):
                 "book_page": book_page,
                 "labels": detect_labels(chunk.page_content),
                 "book_name": book_name,
-                "chunk_id": f"{book_name}-{pdf_page}-{j}",
+                "chunk_id": f"{book_name}-{pdf_page}-{i}-{j}",
             }
             chunked_docs.append(chunk)
 

@@ -19,3 +19,7 @@ langfuse
 ragas
 datasets
 pytest
+
+# v2.0 additions
+docling
+langchain-docling

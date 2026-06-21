@@ -144,8 +144,16 @@ def load_and_chunk_pdf(pdf_path, chunk_size, chunk_overlap):
         # Extract page number robustly from Docling metadata
         metadata = doc.metadata
         dl_meta = metadata.get("dl_meta", {})
-        page_numbers = dl_meta.get("page_numbers", [])
-        pdf_page = page_numbers[0] if page_numbers else metadata.get("page", 1)
+        doc_items = dl_meta.get("doc_items", [])
+        page_numbers = set()
+        for item in doc_items:
+            prov_list = item.get("prov", [])
+            for prov in prov_list:
+                p = prov.get("page_no")
+                if p is not None:
+                    page_numbers.add(p)
+        sorted_pages = sorted(list(page_numbers))
+        pdf_page = sorted_pages[0] if sorted_pages else metadata.get("page", 1)
         
         book_page = pdf_page - PAGE_OFFSET
         chapter = get_chapter_by_page(pdf_page)

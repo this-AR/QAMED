@@ -305,7 +305,9 @@ if st.button("Ask", type="primary") and query.strip():
                 tracer=tracer,
             )
 
-            render_rating(idx, subquery)
+            # trace is from `with tracer.trace(...) as trace:`
+            trace_id = getattr(trace, "id", None) if trace else None
+            render_rating(idx, subquery, trace_id)
             render_sources(top_docs)
             render_ragas_scores(st.session_state.get(ragas_key))
 

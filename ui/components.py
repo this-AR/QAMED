@@ -43,8 +43,11 @@ def render_sources(top_docs: list):
             st.write("---")
 
 
-def render_rating(idx: int, subquery: str):
-    """Render the answer rating slider and submit button."""
+from services.observability import get_tracer
+
+@st.fragment
+def render_rating(idx: int, subquery: str, trace_id: str | None = None):
+    """Render the answer rating slider and submit button as an independent fragment."""
     rating_key = f"rating_{idx}_{hash(subquery)}"
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -52,6 +55,21 @@ def render_rating(idx: int, subquery: str):
     with col2:
         if st.button("Submit", key=f"submit_{rating_key}"):
             st.session_state["ratings"][subquery] = rating
+            
+            # Log score to Langfuse if tracing is enabled
+            if trace_id:
+                tracer = get_tracer()
+                if tracer.enabled and hasattr(tracer._client, "score"):
+                    try:
+                        tracer._client.score(
+                            trace_id=trace_id,
+                            name="user-rating",
+                            value=rating,
+                            comment=f"Rating for subquery: {subquery}"
+                        )
+                    except Exception as e:
+                        pass # Silently ignore network errors for metrics
+            
             st.success(f"Saved {rating}/10")
 
 

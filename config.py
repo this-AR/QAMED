@@ -40,3 +40,9 @@ SEMANTIC_CACHE_COLLECTION = os.getenv("SEMANTIC_CACHE_COLLECTION", "query_cache"
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST")  # defaults to Langfuse Cloud if unset
+
+# ── Hierarchical Chunking (v2.0) ─────────────────────────────────────────────
+PARAGRAPH_CHUNK_TOKENS = int(os.getenv("PARAGRAPH_CHUNK_TOKENS", "300"))
+CHUNK_OVERLAP_TOKENS = int(os.getenv("CHUNK_OVERLAP_TOKENS", "45"))
+MAX_PARENT_CONTEXT_TOKENS = int(os.getenv("MAX_PARENT_CONTEXT_TOKENS", "3000"))
+DOC_STORE_PATH = os.getenv("DOC_STORE_PATH", "data/doc_store.db")

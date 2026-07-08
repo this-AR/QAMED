@@ -51,9 +51,10 @@ def test_services_llm_imports():
 
 
 def test_services_retrieval_imports():
-    from services.retrieval import load_models_and_clients, rerank_docs
+    from services.retrieval import load_models_and_clients, rerank_docs, expand_to_parents
     assert callable(load_models_and_clients)
     assert callable(rerank_docs)
+    assert callable(expand_to_parents)
 
 
 def test_services_cache_imports():
@@ -89,12 +90,12 @@ def test_ui_components_imports():
 
 def test_data_ingest_imports():
     from data.ingest import (
-        load_and_chunk_pdf, detect_labels, get_chapter_by_page,
-        segment_text_with_pysbd, ensure_collection, CHAPTER_MAP,
+        hierarchical_chunk, detect_labels,
+        segment_text_with_pysbd, ensure_collection,
     )
-    assert callable(load_and_chunk_pdf)
+    assert callable(hierarchical_chunk)
     assert callable(detect_labels)
-    assert len(CHAPTER_MAP) > 0
+
 
 
 def test_evaluation_ragas_imports():

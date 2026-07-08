@@ -16,11 +16,11 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from config import GROQ_MODEL, DEFAULT_PROMPT_VERSION
+from config import GROQ_MODEL, DEFAULT_PROMPT_VERSION, MAX_PARENT_CONTEXT_TOKENS
 from prompts import PROMPT_TEMPLATES, resolve_prompt_version
 
 from services.llm import extract_subquestions, classify_query, build_prompt, stream_groq_answer
-from services.retrieval import load_models_and_clients, rerank_docs
+from services.retrieval import load_models_and_clients, rerank_docs, expand_to_parents
 from services.cache import check_cache, store_in_cache, CacheResult
 from services.guardrails import check_hallucination
 from services.observability import get_tracer, Timer
@@ -60,10 +60,11 @@ def _cached_load_models():
 # ── Load Models on Startup ────────────────────────────────────────────────────
 with st.spinner("Loading models and connections..."):
     try:
-        groq_client, vectorstore, reranker = _cached_load_models()
+        groq_client, vectorstore, reranker, doc_store = _cached_load_models()
         st.session_state["groq_client"] = groq_client
         st.session_state["vectorstore"] = vectorstore
         st.session_state["reranker"] = reranker
+        st.session_state["doc_store"] = doc_store
     except Exception as exc:
         st.error(str(exc))
         st.stop()
@@ -210,8 +211,10 @@ if st.button("Ask", type="primary") and query.strip():
             top_docs = rerank_docs(reranker, subquery, docs, top_n=4)
             context_chunks = [doc.page_content for doc in top_docs]
 
+            parent_sections = expand_to_parents(top_docs, st.session_state["doc_store"], MAX_PARENT_CONTEXT_TOKENS)
+
             system_msg, user_msg, used_prompt_version = build_prompt(
-                subquery, top_docs, active_prompt_version,
+                subquery, parent_sections, top_docs, active_prompt_version,
             )
 
             # ── Stream the answer ─────────────────────────────────────────

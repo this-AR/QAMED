@@ -83,15 +83,23 @@ def classify_query(groq_client, model: str, query: str) -> tuple[str, str]:
 
 
 # ── Prompt Builder ────────────────────────────────────────────────────────────
-def build_prompt(subquery: str, docs: list, prompt_version: str) -> tuple[str, str, str]:
+def build_prompt(subquery: str, parent_sections: list[dict], leaf_docs: list, prompt_version: str) -> tuple[str, str, str]:
     """Build the system and user messages for the generation step.
 
     Returns: (system_msg, user_msg, resolved_version)
     """
     context_blocks = []
-    for i, doc in enumerate(docs, 1):
-        passage = doc.page_content.strip().replace("\n", " ")
-        context_blocks.append(f"[{i}] {passage}")
+    
+    # We use parent sections for rich context
+    if parent_sections:
+        for i, parent in enumerate(parent_sections, 1):
+            passage = parent["text"].strip().replace("\n", " ")
+            context_blocks.append(f"[{i}] {passage}")
+    else:
+        # Fallback if no parents (e.g. legacy chunks or test data without parents)
+        for i, doc in enumerate(leaf_docs, 1):
+            passage = doc.page_content.strip().replace("\n", " ")
+            context_blocks.append(f"[{i}] {passage}")
 
     version = resolve_prompt_version(prompt_version)
     template = PROMPT_TEMPLATES[version]

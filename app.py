@@ -130,6 +130,9 @@ if st.button("Ask", type="primary") and query.strip():
                     "cache_hit": True,
                 }
             )
+            trace_id = getattr(trace, "id", None) if trace else None
+            render_rating(0, query, trace_id)
+            
             st.caption(f"Returned from cache in {time.time() - start_time:.2f}s")
             render_run_history(st.session_state["prompt_runs"])
             st.stop()
@@ -191,6 +194,11 @@ if st.button("Ask", type="primary") and query.strip():
 
             top_doc = rerank_docs(reranker, query, docs, top_n=1)[0]
             render_simple_answer(top_doc, query, st.session_state["doc_store"])
+            
+            trace_id = getattr(trace, "id", None) if trace else None
+            render_rating(0, query, trace_id)
+            
+            st.caption(f"Completed in {time.time() - start_time:.2f}s")
             st.stop()
 
         # ── COMPLEX path: full RAG pipeline ──────────────────────────────

@@ -22,10 +22,19 @@ def extract_subquestions(groq_client, model: str, query: str) -> list[str]:
             {
                 "role": "system",
                 "content": (
-                    "You are a medical assistant. "
-                    "Break the question into focused subquestions, one concept each. "
-                    "Return only a numbered list. Maximum 4 subquestions. "
-                    "Do not add explanations or preamble."
+                    "You are an expert medical query decomposer. "
+                    "Break complex or multi-part questions into individual, highly focused subquestions (one concept each). "
+                    "This is critical for vector database retrieval. "
+                    "If a question asks for a definition AND contents/causes/effects, YOU MUST SPLIT THEM into separate questions. "
+                    "Return only a numbered list. Maximum 4 subquestions. Do not add explanations.\n\n"
+                    "Example 1:\n"
+                    "Question: what is inguinal canal and its content?\n"
+                    "1. What is the inguinal canal?\n"
+                    "2. What are the contents of the inguinal canal?\n\n"
+                    "Example 2:\n"
+                    "Question: symptoms of malaria and how is it treated\n"
+                    "1. What are the symptoms of malaria?\n"
+                    "2. How is malaria treated?"
                 ),
             },
             {

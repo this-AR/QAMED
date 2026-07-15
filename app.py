@@ -190,7 +190,7 @@ if st.button("Ask", type="primary") and query.strip():
                 st.stop()
 
             top_doc = rerank_docs(reranker, query, docs, top_n=1)[0]
-            render_simple_answer(top_doc, query)
+            render_simple_answer(top_doc, query, st.session_state["doc_store"])
             st.stop()
 
         # ── COMPLEX path: full RAG pipeline ──────────────────────────────

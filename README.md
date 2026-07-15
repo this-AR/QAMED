@@ -1,3 +1,14 @@
+---
+title: QAMED CHATBOT
+emoji: 🏥
+colorFrom: blue
+colorTo: indigo
+sdk: streamlit
+app_file: app.py
+pinned: false
+license: mit
+---
+
 # Medical RAG System 
 
 *An advanced Retrieval-Augmented Generation system specifically designed for medical question answering using vector databases and medical-specialized language models.*

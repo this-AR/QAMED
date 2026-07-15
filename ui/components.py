@@ -29,7 +29,8 @@ def render_simple_answer(top_doc, query: str, doc_store=None):
 
     # PySBD-aware sentence splitting — handles Dr., Fig., M. tuberculosis etc.
     sentences = _SEGMENTER.segment(text_to_segment)
-    short_answer = " ".join(s.strip() for s in sentences[:2] if s.strip())
+    # Increase from 2 to 5 sentences to provide a more detailed definition
+    short_answer = " ".join(s.strip() for s in sentences[:5] if s.strip())
 
     st.subheader("Extracted answer (SIMPLE)")
     st.markdown(short_answer)

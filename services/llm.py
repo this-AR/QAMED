@@ -60,7 +60,8 @@ def classify_query(groq_client, model: str, query: str) -> tuple[str, str]:
         "COMPLEX:\n"
         "- multi-hop reasoning\n"
         "- comparison\n"
-        "- requires synthesis\n\n"
+        "- requires synthesis\n"
+        "- multiple questions/parts\n\n"
         f"Query:\n{query}\n\n"
         "Answer with a single token: SIMPLE or COMPLEX. Do not add any other text."
     )

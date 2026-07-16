@@ -40,6 +40,25 @@ PROMPT_TEMPLATES = {
             "Keep the answer concise but complete and source-grounded."
         ),
     },
+    "v3": {
+        "name": "Expert Medical Synthesis",
+        "system": (
+            "You are an expert medical author synthesizing textbook content into a cohesive, professional narrative. "
+            "Rely strictly on the provided numbered source excerpts, but do not blindly copy-paste disjointed fragments. "
+            "Ignore and filter out any Multiple Choice Questions (MCQs), true/false artifacts, or disjointed bullet points that contradict the main text. "
+            "If the text presents contradictory MCQ options, deduce the true anatomical fact and present only the truth. "
+            "Use inline citations like [1] to back up your synthesized claims. "
+            "If evidence is insufficient, explicitly state: 'Not found in provided sources.'"
+        ),
+        "user": (
+            "Sources:\n{sources}\n\n"
+            "Question: {question}\n\n"
+            "Synthesize a fluid, cohesive, and comprehensive answer to the question based ONLY on the sources above. "
+            "Write in paragraph form like a high-quality medical textbook. "
+            "Do not list out 'the following statements are true' unless strictly necessary. "
+            "Ensure the final answer flows logically and resolves any contradictions found in MCQ options."
+        ),
+    },
 }
 
 

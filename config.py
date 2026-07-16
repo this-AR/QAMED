@@ -25,7 +25,7 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 EMBEDDING_MODEL_NAME = "pritamdeka/S-PubMedBert-MS-MARCO"
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
-DEFAULT_PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v1")
+DEFAULT_PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v3")
 
 # ── Cache (v1.5) ──────────────────────────────────────────────────────────────
 # REDIS_URL is optional. If absent, exact-match cache is silently disabled.
@@ -41,8 +41,17 @@ LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST")  # defaults to Langfuse Cloud if unset
 
-# ── Hierarchical Chunking (v2.0) ─────────────────────────────────────────────
-PARAGRAPH_CHUNK_TOKENS = int(os.getenv("PARAGRAPH_CHUNK_TOKENS", "300"))
-CHUNK_OVERLAP_TOKENS = int(os.getenv("CHUNK_OVERLAP_TOKENS", "45"))
-MAX_PARENT_CONTEXT_TOKENS = int(os.getenv("MAX_PARENT_CONTEXT_TOKENS", "3000"))
+# ── Hierarchical Chunking (v2.0) & Hybrid Search ──────────────────────────────
+PARAGRAPH_CHUNK_TOKENS = int(os.getenv("PARAGRAPH_CHUNK_TOKENS", "200"))
+CHUNK_OVERLAP_TOKENS = int(os.getenv("CHUNK_OVERLAP_TOKENS", "30"))
+MAX_PARENT_CONTEXT_TOKENS = int(os.getenv("MAX_PARENT_CONTEXT_TOKENS", "2048"))
 DOC_STORE_PATH = os.getenv("DOC_STORE_PATH", "data/doc_store.db")
+RRF_K = int(os.getenv("RRF_K", "60"))
+BM25_TOP_K = int(os.getenv("BM25_TOP_K", "75"))
+DENSE_TOP_K = int(os.getenv("DENSE_TOP_K", "75"))
+
+# ── Contextual Micro-Headers & A/B Testing (v2.5) ────────────────────────────
+CONTEXT_API_KEYS = os.getenv("CONTEXT_API_KEYS", "")
+CONTEXT_WORKERS = int(os.getenv("CONTEXT_WORKERS", "5"))
+USE_HYBRID_SEARCH = os.getenv("USE_HYBRID_SEARCH", "true").lower() == "true"
+

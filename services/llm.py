@@ -134,7 +134,7 @@ def stream_groq_answer(groq_client, model: str, system_msg: str, user_msg: str):
         ],
         temperature=0.1,
         top_p=0.9,
-        max_tokens=512,
+        max_tokens=1024,
         stream=True,
     )
 

@@ -16,11 +16,11 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from config import GROQ_MODEL, DEFAULT_PROMPT_VERSION, MAX_PARENT_CONTEXT_TOKENS
+from config import GROQ_MODEL, DEFAULT_PROMPT_VERSION, MAX_PARENT_CONTEXT_TOKENS, BM25_TOP_K, DENSE_TOP_K, RRF_K, USE_HYBRID_SEARCH
 from prompts import PROMPT_TEMPLATES, resolve_prompt_version
 
 from services.llm import extract_subquestions, classify_query, build_prompt, stream_groq_answer
-from services.retrieval import load_models_and_clients, rerank_docs, expand_to_parents
+from services.retrieval import load_models_and_clients, rerank_docs, expand_to_parents, bm25_search, rrf_fusion
 from services.cache import check_cache, store_in_cache, CacheResult
 from services.guardrails import check_hallucination
 from services.observability import get_tracer, Timer
@@ -28,7 +28,6 @@ from services.observability import get_tracer, Timer
 from evaluation.ragas_eval import run_eval_async
 
 from ui.components import (
-    render_simple_answer,
     render_sources,
     render_rating,
     render_run_history,
@@ -60,11 +59,13 @@ def _cached_load_models():
 # ── Load Models on Startup ────────────────────────────────────────────────────
 with st.spinner("Loading models and connections..."):
     try:
-        groq_client, vectorstore, reranker, doc_store = _cached_load_models()
+        groq_client, vectorstore, reranker, doc_store, bm25_index, bm25_corpus = _cached_load_models()
         st.session_state["groq_client"] = groq_client
         st.session_state["vectorstore"] = vectorstore
         st.session_state["reranker"] = reranker
         st.session_state["doc_store"] = doc_store
+        st.session_state["bm25_index"] = bm25_index
+        st.session_state["bm25_corpus"] = bm25_corpus
     except Exception as exc:
         st.error(str(exc))
         st.stop()
@@ -90,6 +91,7 @@ query = st.text_input(
     placeholder="e.g. What is the inguinal canal and what are its contents?",
 )
 use_decomposition = st.checkbox("Use query decomposition", value=True)
+ab_testing = st.checkbox("🔬 A/B Test: Compare Hybrid vs Pure Dense", value=False)
 
 prompt_options = list(PROMPT_TEMPLATES.keys())
 default_version = resolve_prompt_version(DEFAULT_PROMPT_VERSION)
@@ -181,32 +183,14 @@ if st.button("Ask", type="primary") and query.strip():
             }
         )
 
-        # ── SIMPLE path: extracted definition, skip full RAG ──────────────
-        if classification_label == "SIMPLE":
-            st.info("Detected SIMPLE question — returning extracted definition without full RAG generation.")
 
-            retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
-            docs = retriever.invoke("query: " + query)
-
-            if not docs:
-                st.warning("No matching documents found for the query.")
-                st.stop()
-
-            top_doc = rerank_docs(reranker, query, docs, top_n=1)[0]
-            render_simple_answer(top_doc, query, st.session_state["doc_store"])
-            
-            trace_id = getattr(trace, "id", None) if trace else None
-            render_rating(0, query, trace_id)
-            
-            st.caption(f"Completed in {time.time() - start_time:.2f}s")
-            st.stop()
 
         # ── COMPLEX path: full RAG pipeline ──────────────────────────────
         if not subqueries:
             st.warning("No subquestions generated. Try rephrasing your query.")
             st.stop()
 
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 15})
+        retriever = vectorstore.as_retriever(search_kwargs={"k": DENSE_TOP_K})
 
         # Accumulate full answer for cache storage after all subqueries
         full_answer_parts: list[str] = []
@@ -215,8 +199,71 @@ if st.button("Ask", type="primary") and query.strip():
         for idx, subquery in enumerate(subqueries, start=1):
             st.subheader(f"Subquestion {idx}: {subquery}")
 
-            docs = retriever.invoke("query: " + subquery)
-            top_docs = rerank_docs(reranker, subquery, docs, top_n=4)
+            # ── A/B Testing Mode ──────────────────────────────────────────
+            if ab_testing:
+                col_hybrid, col_dense = st.columns(2)
+                dense_docs = retriever.invoke("query: " + subquery)
+
+                # --- LEFT COLUMN: Hybrid (BM25 + Dense + RRF) ---
+                with col_hybrid:
+                    st.markdown("#### 🔵 Hybrid (BM25 + Dense + RRF)")
+                    sparse_docs = bm25_search(subquery, st.session_state["bm25_index"], st.session_state["bm25_corpus"], top_k=BM25_TOP_K)
+                    fused_docs = rrf_fusion(dense_docs, sparse_docs, k=RRF_K)
+                    hybrid_top = rerank_docs(reranker, subquery, fused_docs, top_n=6)
+                    hybrid_parents = expand_to_parents(hybrid_top, st.session_state["doc_store"], MAX_PARENT_CONTEXT_TOKENS)
+                    h_sys, h_usr, h_ver = build_prompt(subquery, hybrid_parents, hybrid_top, active_prompt_version)
+                    h_box = st.empty()
+                    h_text = ""
+                    for token in stream_groq_answer(groq_client, GROQ_MODEL, h_sys, h_usr):
+                        h_text += token
+                        h_box.markdown(h_text)
+                    render_sources(hybrid_top)
+
+                # --- RIGHT COLUMN: Pure Dense ---
+                with col_dense:
+                    st.markdown("#### 🟢 Pure Dense")
+                    dense_top = rerank_docs(reranker, subquery, dense_docs, top_n=6)
+                    dense_parents = expand_to_parents(dense_top, st.session_state["doc_store"], MAX_PARENT_CONTEXT_TOKENS)
+                    d_sys, d_usr, d_ver = build_prompt(subquery, dense_parents, dense_top, active_prompt_version)
+                    d_box = st.empty()
+                    d_text = ""
+                    for token in stream_groq_answer(groq_client, GROQ_MODEL, d_sys, d_usr):
+                        d_text += token
+                        d_box.markdown(d_text)
+                    render_sources(dense_top)
+
+                # Use hybrid result for cache/logging (default)
+                top_docs = hybrid_top
+                context_chunks = [doc.page_content for doc in top_docs]
+                parent_sections = hybrid_parents
+                answer_text = h_text
+                used_prompt_version = h_ver
+                system_msg, user_msg = h_sys, h_usr
+                # Skip the normal streaming block below
+                st.caption(f"Prompt version used: {used_prompt_version}")
+                st.session_state["prompt_runs"].append({
+                    "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+                    "query": query, "subquery": subquery,
+                    "prompt_version": used_prompt_version, "model": GROQ_MODEL,
+                    "sources_used": len(top_docs), "cache_hit": False,
+                    "mode": "ab_test",
+                })
+                trace_id = getattr(trace, "id", None) if trace else None
+                render_rating(idx, subquery, trace_id)
+                full_answer_parts.append(answer_text)
+                full_sources_text_parts.append(
+                    "\n".join(f"[{i+1}] {doc.page_content[:200]}…" for i, doc in enumerate(top_docs))
+                )
+                continue  # Skip the normal pipeline below for this subquery
+
+            # ── Normal single-path retrieval ──────────────────────────────
+            dense_docs = retriever.invoke("query: " + subquery)
+            if USE_HYBRID_SEARCH:
+                sparse_docs = bm25_search(subquery, st.session_state["bm25_index"], st.session_state["bm25_corpus"], top_k=BM25_TOP_K)
+                fused_docs = rrf_fusion(dense_docs, sparse_docs, k=RRF_K)
+            else:
+                fused_docs = dense_docs
+            top_docs = rerank_docs(reranker, subquery, fused_docs, top_n=6)
             context_chunks = [doc.page_content for doc in top_docs]
 
             parent_sections = expand_to_parents(top_docs, st.session_state["doc_store"], MAX_PARENT_CONTEXT_TOKENS)

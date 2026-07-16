@@ -23,3 +23,7 @@ pytest
 # v2.0 additions
 docling
 langchain-docling
+rank_bm25
+tenacity
+tqdm
+google-generativeai

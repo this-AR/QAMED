@@ -38,7 +38,7 @@ def render_simple_answer(top_doc, query: str, doc_store=None):
     meta = top_doc.metadata or {}
     st.markdown(
         f"**Source:** Chapter: {meta.get('chapter', 'N/A')} | "
-        f"Page: {meta.get('page_number', 'N/A')} | "
+        f"Page: {meta.get('book_page', 'N/A')} | "
         f"Book: {meta.get('book_name', 'N/A')}"
     )
 
@@ -50,7 +50,7 @@ def render_sources(top_docs: list):
             meta = doc.metadata or {}
             st.markdown(
                 f"**Chapter:** {meta.get('chapter', 'N/A')} &nbsp;|&nbsp; "
-                f"**Page:** {meta.get('page_number', 'N/A')} &nbsp;|&nbsp; "
+                f"**Page:** {meta.get('book_page', 'N/A')} &nbsp;|&nbsp; "
                 f"**Book:** {meta.get('book_name', 'N/A')} &nbsp;|&nbsp; "
                 f"**Labels:** {', '.join(meta.get('labels', [])) if meta.get('labels') else 'N/A'}"
             )

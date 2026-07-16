@@ -65,3 +65,20 @@
 ### Rating Slider Visibility
 - **Decision:** Moved the Langfuse rating slider UI rendering outside of the COMPLEX RAG pipeline loop.
 - **Reasoning:** Cached answers and SIMPLE answers stop the script early (`st.stop()`) to save time. By moving the rating UI up, we ensure users can log feedback metrics for *all* answer types, not just live-generated ones.
+
+
+## Phase 4: Contextual Enrichment & RAG Tuning
+
+### Contextual Micro-Headers & Breadcrumbs
+- **Decision:** Implemented a pre-ingestion LLM pass to generate hierarchical breadcrumbs and micro-summaries for every 200-token chunk. This metadata is prepended to the raw chunk text.
+- **Reasoning:** Medical text is extremely dense. By embedding both the raw text (for exact anatomical details) and the summary (for high-level contextual disambiguation), the vector database can better differentiate between similar structures (e.g., surgical neck of humerus vs. surgical neck of other bones).
+- **Tradeoff:** Increases ingestion cost and time due to the extra LLM calls per chunk, but drastically improves retrieval precision.
+
+### Expanding the Retrieval Net & Shrinking the Context Window
+- **Decision:** Increased Top-K for both Dense and Sparse retrieval from 15 to 75. Increased Cross-Encoder Reranker Top-N from 4 to 6. Shrunk the LLM's maximum parent context window from 3000 tokens to 2048 tokens.
+- **Reasoning:** Retrieving only 15 chunks starved the cross-encoder of candidates. By widening the initial net (Top-75) and letting the cross-encoder sift through the noise to pick the Top-6, we ensure high recall. Shrinking the context window to 2048 tokens prevents the LLM from getting distracted by bloated parent documents or copying irrelevant MCQ artifacts into the final answer.
+- **Tradeoff:** Marginally higher latency for Qdrant/BM25 search and reranking, but significantly better grounded and accurate LLM synthesis.
+
+### Prompt Refinement (v3)
+- **Decision:** Developed the `v3` ("Expert Medical Synthesis") prompt template, which explicitly instructs the LLM to synthesize a cohesive, flowing response and to ignore non-textbook artifacts (like MCQs).
+- **Reasoning:** Previous prompts (v1 and v2) resulted in robotic, rigidly structured bullet points, or occasionally leaked multiple-choice options into the answer. `v3` produces state-of-the-art textbook-quality responses.

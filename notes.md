@@ -82,3 +82,23 @@
 ### Prompt Refinement (v3)
 - **Decision:** Developed the `v3` ("Expert Medical Synthesis") prompt template, which explicitly instructs the LLM to synthesize a cohesive, flowing response and to ignore non-textbook artifacts (like MCQs).
 - **Reasoning:** Previous prompts (v1 and v2) resulted in robotic, rigidly structured bullet points, or occasionally leaked multiple-choice options into the answer. `v3` produces state-of-the-art textbook-quality responses.
+
+
+## Pending Tasks Before Final Deploy (V2.0/V3.0 Remaining)
+
+While the core pipeline (Docling, Hybrid Search, Qdrant Cloud, Groq streaming, Caching, Tracing, and Ragas Eval) is fully operational and deployed, the following architectural upgrades remain to reach the true Version 2.0 / 3.0 "Research Grade" standard:
+
+### 1. Embeddings & Chunking
+- **MedCPT Embeddings Migration:** We are currently using \`S-PubMedBert-MS-MARCO\`. We need to migrate to the asymmetric \`MedCPT\` encoders (separate query and article encoders) for state-of-the-art medical matching.
+- **Multi-Level Chunking:** Transition from our current single-granularity 200-token chunks to a simultaneous 3-level index (Sentence 80t + Paragraph 250t + Section 1000t).
+- **Automatic TOC Chapter Mapping:** Replace the current basic book tracking with automated extraction of Chapter and Section headers from Docling to enable metadata pre-filtering by chapter.
+
+### 2. Advanced Retrieval Strategies
+- **HyDE (Hypothetical Document Embeddings):** Implement selective HyDE for complex, multi-concept queries to bridge the vocabulary gap before hitting Qdrant.
+- **LLMLingua Context Compression:** Trim the retrieved chunks down to just their most relevant sentences to save LLM context window space and reduce distraction.
+- **Multi-Hop LangGraph Agent:** Build an agentic loop for cross-chapter retrieval (e.g., if a question requires combining anatomy from chapter 2 with pathology from chapter 5).
+
+### 3. Evaluation & Feedback
+- **Feedback Loop:** Build the UI thumbs-up/down buttons in Streamlit to collect user ratings and feed them back into the evaluation dataset.
+- **Golden Dataset:** Run an automated script to generate 500+ QA pairs directly from our chunks to establish a baseline RAGAS score matrix.
+- **Metrics Dashboard:** Create a separate Streamlit page or Grafana dashboard to visualize Langfuse latency, costs, and RAGAS scores over time.

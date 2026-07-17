@@ -34,6 +34,9 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, FilterSelector, Filter, FieldCondition, MatchValue
 from langchain_core.documents import Document
 
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from config import (
     QDRANT_URL,
     QDRANT_API_KEY,
@@ -622,13 +625,20 @@ def hierarchical_chunk(docs, book_name: str, doc_store: DocumentStore) -> list:
 
 def ensure_collection(client, collection_name, vector_size):
     existing = {c.name for c in client.get_collections().collections}
-    if collection_name in existing:
-        return
-
-    client.create_collection(
-        collection_name=collection_name,
-        vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-    )
+    if collection_name not in existing:
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+        )
+        
+    try:
+        client.create_payload_index(
+            collection_name=collection_name,
+            field_name="book_name",
+            field_schema="keyword"
+        )
+    except Exception:
+        pass
 
 def reingest_book(qdrant_client, collection_name, book_name, doc_store):
     """Delete all existing chunks for this book before inserting fresh."""

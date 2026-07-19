@@ -53,7 +53,7 @@ def load_models_and_clients():
         model_name=EMBEDDING_MODEL_NAME
     )
 
-    reranker = CrossEncoder("BAAI/bge-reranker-base")
+    reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
     vectorstore = QdrantVectorStore(
         client=qdrant_client,

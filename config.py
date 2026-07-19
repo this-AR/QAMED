@@ -48,7 +48,7 @@ MAX_PARENT_CONTEXT_TOKENS = int(os.getenv("MAX_PARENT_CONTEXT_TOKENS", "2048"))
 DOC_STORE_PATH = os.getenv("DOC_STORE_PATH", "data/doc_store.db")
 RRF_K = int(os.getenv("RRF_K", "60"))
 BM25_TOP_K = int(os.getenv("BM25_TOP_K", "75"))
-DENSE_TOP_K = int(os.getenv("DENSE_TOP_K", "75"))
+DENSE_TOP_K = int(os.getenv("DENSE_TOP_K", "30"))
 
 # ── Contextual Micro-Headers & A/B Testing (v2.5) ────────────────────────────
 CONTEXT_API_KEYS = os.getenv("CONTEXT_API_KEYS", "")

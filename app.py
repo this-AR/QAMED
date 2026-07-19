@@ -292,7 +292,7 @@ if st.button("Ask", type="primary") and query.strip():
 
             # ── Output guardrail ──────────────────────────────────────────
             t_guard = Timer()
-            guardrail = check_hallucination(answer_text, context_chunks, groq_client, GROQ_MODEL)
+            guardrail = check_hallucination(answer_text, context_chunks, groq_client, GROQ_MODEL, embedding_fn=_embed_query)
             tracer.log_generation(
                 trace,
                 name=f"guardrail-{idx}",
@@ -321,7 +321,7 @@ if st.button("Ask", type="primary") and query.strip():
                 answer_text = retry_text
 
                 # Re-check after retry
-                guardrail = check_hallucination(answer_text, context_chunks, groq_client, GROQ_MODEL)
+                guardrail = check_hallucination(answer_text, context_chunks, groq_client, GROQ_MODEL, embedding_fn=_embed_query)
                 tracer.log_generation(
                     trace,
                     name=f"guardrail-retry-{idx}",

@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # Sentences scoring above HIGH are definitely grounded.
 # Sentences scoring below LOW are definitely hallucinated.
 # Scores in [LOW, HIGH) go to the LLM fallback.
-HIGH_THRESHOLD = 0.30   # average max-sim above this → GROUNDED (no LLM call)
+HIGH_THRESHOLD = 0.45   # average max-sim above this → GROUNDED (no LLM call)
 LOW_THRESHOLD  = 0.18   # average max-sim below this → HALLUCINATED (no LLM call)
 # Between LOW and HIGH → LLM fallback
 

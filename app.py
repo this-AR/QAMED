@@ -139,22 +139,7 @@ if st.button("Ask", type="primary") and query.strip():
             render_run_history(st.session_state["prompt_runs"])
             st.stop()
 
-        # ── Query decomposition + classification ──────────────────────────
-        t_decomp = Timer()
-        subqueries = (
-            extract_subquestions(groq_client, GROQ_MODEL, query)
-            if use_decomposition
-            else [query]
-        )
-        tracer.log_generation(
-            trace,
-            name="decomposition",
-            prompt=query,
-            completion=str(subqueries),
-            model=GROQ_MODEL,
-            latency_ms=t_decomp.elapsed_ms(),
-        )
-
+        # ── Query classification + decomposition ──────────────────────────
         t_classify = Timer()
         classification_label, classifier_raw = classify_query(groq_client, GROQ_MODEL, query)
         tracer.log_generation(
@@ -165,6 +150,23 @@ if st.button("Ask", type="primary") and query.strip():
             model=GROQ_MODEL,
             latency_ms=t_classify.elapsed_ms(),
             metadata={"label": classification_label},
+        )
+
+        t_decomp = Timer()
+        if classification_label == "SIMPLE":
+            subqueries = [query]
+        elif use_decomposition:
+            subqueries = extract_subquestions(groq_client, GROQ_MODEL, query)
+        else:
+            subqueries = [query]
+            
+        tracer.log_generation(
+            trace,
+            name="decomposition",
+            prompt=query,
+            completion=str(subqueries),
+            model=GROQ_MODEL,
+            latency_ms=t_decomp.elapsed_ms(),
         )
 
         # Log classification decision
@@ -212,11 +214,7 @@ if st.button("Ask", type="primary") and query.strip():
                     hybrid_top = rerank_docs(reranker, subquery, fused_docs, top_n=6)
                     hybrid_parents = expand_to_parents(hybrid_top, st.session_state["doc_store"], MAX_PARENT_CONTEXT_TOKENS)
                     h_sys, h_usr, h_ver = build_prompt(subquery, hybrid_parents, hybrid_top, active_prompt_version)
-                    h_box = st.empty()
-                    h_text = ""
-                    for token in stream_groq_answer(groq_client, GROQ_MODEL, h_sys, h_usr):
-                        h_text += token
-                        h_box.markdown(h_text)
+                    h_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, h_sys, h_usr))
                     render_sources(hybrid_top)
 
                 # --- RIGHT COLUMN: Pure Dense ---
@@ -225,17 +223,14 @@ if st.button("Ask", type="primary") and query.strip():
                     dense_top = rerank_docs(reranker, subquery, dense_docs, top_n=6)
                     dense_parents = expand_to_parents(dense_top, st.session_state["doc_store"], MAX_PARENT_CONTEXT_TOKENS)
                     d_sys, d_usr, d_ver = build_prompt(subquery, dense_parents, dense_top, active_prompt_version)
-                    d_box = st.empty()
-                    d_text = ""
-                    for token in stream_groq_answer(groq_client, GROQ_MODEL, d_sys, d_usr):
-                        d_text += token
-                        d_box.markdown(d_text)
+                    d_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, d_sys, d_usr))
                     render_sources(dense_top)
 
                 # Use hybrid result for cache/logging (default)
                 top_docs = hybrid_top
-                context_chunks = [doc.page_content for doc in top_docs]
                 parent_sections = hybrid_parents
+                # Use parent sections (what the LLM actually sees) for guardrail checking
+                context_chunks = [p["text"] for p in parent_sections] if parent_sections else [doc.page_content for doc in top_docs]
                 answer_text = h_text
                 used_prompt_version = h_ver
                 system_msg, user_msg = h_sys, h_usr
@@ -264,9 +259,10 @@ if st.button("Ask", type="primary") and query.strip():
             else:
                 fused_docs = dense_docs
             top_docs = rerank_docs(reranker, subquery, fused_docs, top_n=6)
-            context_chunks = [doc.page_content for doc in top_docs]
-
             parent_sections = expand_to_parents(top_docs, st.session_state["doc_store"], MAX_PARENT_CONTEXT_TOKENS)
+            
+            # Use parent sections (what the LLM actually sees) for guardrail checking
+            context_chunks = [p["text"] for p in parent_sections] if parent_sections else [doc.page_content for doc in top_docs]
 
             system_msg, user_msg, used_prompt_version = build_prompt(
                 subquery, parent_sections, top_docs, active_prompt_version,
@@ -274,11 +270,7 @@ if st.button("Ask", type="primary") and query.strip():
 
             # ── Stream the answer ─────────────────────────────────────────
             t_gen = Timer()
-            answer_box = st.empty()
-            answer_text = ""
-            for token in stream_groq_answer(groq_client, GROQ_MODEL, system_msg, user_msg):
-                answer_text += token
-                answer_box.markdown(answer_text)
+            answer_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, system_msg, user_msg))
 
             tracer.log_generation(
                 trace,
@@ -313,12 +305,7 @@ if st.button("Ask", type="primary") and query.strip():
                     "Do not infer or extrapolate under any circumstances."
                 )
                 t_regen = Timer()
-                retry_box = st.empty()
-                retry_text = ""
-                for token in stream_groq_answer(groq_client, GROQ_MODEL, stricter_system, user_msg):
-                    retry_text += token
-                    retry_box.markdown(retry_text)
-                answer_text = retry_text
+                answer_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, stricter_system, user_msg))
 
                 # Re-check after retry
                 guardrail = check_hallucination(answer_text, context_chunks, groq_client, GROQ_MODEL, embedding_fn=_embed_query)

@@ -94,7 +94,7 @@ Create a `.env` file in the root directory:
 QDRANT_URL=your_qdrant_cloud_url
 QDRANT_API_KEY=your_qdrant_api_key
 GROQ_API_KEY=your_groq_api_key
-GROQ_MODEL=llama-3.1-70b-versatile
+GROQ_MODEL=openai/gpt-oss-120b
 PROMPT_VERSION=v3
 ```
 

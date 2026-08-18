@@ -64,9 +64,12 @@ from services.observability import get_tracer
 def render_rating(idx: int, subquery: str, trace_id: str | None = None):
     """Render the answer rating slider and submit button as an independent fragment."""
     rating_key = f"rating_{idx}_{hash(subquery)}"
+    saved_rating = st.session_state.get("ratings", {}).get(subquery)
+    default_val = saved_rating if saved_rating is not None else 7
+
     col1, col2 = st.columns([3, 1])
     with col1:
-        rating = st.slider("Rate this answer", 1, 10, 7, key=rating_key)
+        rating = st.slider("Rate this answer", 1, 10, default_val, key=rating_key)
     with col2:
         if st.button("Submit", key=f"submit_{rating_key}"):
             st.session_state["ratings"][subquery] = rating
@@ -82,10 +85,13 @@ def render_rating(idx: int, subquery: str, trace_id: str | None = None):
                             value=rating,
                             comment=f"Rating for subquery: {subquery}"
                         )
-                    except Exception as e:
+                    except Exception:
                         pass # Silently ignore network errors for metrics
             
             st.success(f"Saved {rating}/10")
+        elif saved_rating is not None:
+            st.caption(f"Saved rating: {saved_rating}/10")
+
 
 
 def render_run_history(prompt_runs: list):

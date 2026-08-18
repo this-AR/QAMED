@@ -111,6 +111,7 @@ def render_active_response(data: dict):
                     st.markdown("#### 🟢 Pure Dense")
                     st.markdown(item["dense_text"])
                     render_sources(item["dense_top"])
+                render_rating(item["idx"], item["subquery"], item.get("trace_id"))
             else:
                 st.markdown(item["answer_text"])
                 if item.get("guardrail"):
@@ -119,7 +120,9 @@ def render_active_response(data: dict):
                 st.caption(f"Prompt version used: {item['used_prompt_version']}")
                 render_rating(item["idx"], item["subquery"], item.get("trace_id"))
                 render_sources(item["top_docs"])
-                render_ragas_scores(st.session_state.get(item["ragas_key"]))
+                ragas_key = item.get("ragas_key")
+                if ragas_key:
+                    render_ragas_scores(st.session_state.get(ragas_key))
 
         st.caption(f"Completed in {data['elapsed']:.2f}s")
 

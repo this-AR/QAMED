@@ -155,7 +155,7 @@ if st.button("Ask", type="primary") and query.strip():
     st.write("---")
 
     with tracer.trace("query-pipeline", query=query) as trace:
-        trace_id = getattr(trace, "id", None) if trace else None
+        trace_id = getattr(trace, "trace_id", None) if trace else None
 
         # ── Level 1 & 2: Cache check ──────────────────────────────────────
         cache_result: CacheResult | None = check_cache(query, _embed_query, _qdrant_client)
@@ -394,6 +394,7 @@ if st.button("Ask", type="primary") and query.strip():
                         session_state=st.session_state,
                         session_key=ragas_key,
                         tracer=tracer,
+                        trace_id=trace_id,
                     )
 
                     render_rating(idx, subquery, trace_id)

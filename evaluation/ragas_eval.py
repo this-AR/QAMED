@@ -45,7 +45,8 @@ def _run_ragas(
     contexts: list[str],
     session_state: dict,
     session_key: str,
-    tracer,
+    tracer=None,
+    trace_id: str | None = None,
 ) -> None:
     """
     Execute RAGAS evaluation and write results to session_state[session_key].
@@ -57,6 +58,14 @@ def _run_ragas(
 
     try:
         # ── Lazy imports to avoid slowing app startup ──────────────────────
+        import sys
+        if "langchain_community.chat_models.vertexai" not in sys.modules:
+            import types
+            dummy = types.ModuleType("langchain_community.chat_models.vertexai")
+            dummy.ChatVertexAI = type("ChatVertexAI", (object,), {})
+            sys.modules["langchain_community.chat_models.vertexai"] = dummy
+
+        import pandas as pd
         from datasets import Dataset  # type: ignore
         from ragas import evaluate  # type: ignore
         from ragas.metrics import (  # type: ignore
@@ -90,7 +99,10 @@ def _run_ragas(
         # ── Run evaluation ─────────────────────────────────────────────────
         result = evaluate(
             dataset,
-            metrics=[faithfulness, answer_relevancy, context_precision],
+            metrics=[
+                faithfulness,
+                answer_relevancy,
+            ],
             llm=llm,
             embeddings=embeddings,
             raise_exceptions=False,
@@ -101,31 +113,23 @@ def _run_ragas(
 
         scores.faithfulness = _safe_float(row.get("faithfulness"))
         scores.answer_relevancy = _safe_float(row.get("answer_relevancy"))
-        scores.context_precision = _safe_float(row.get("context_precision"))
 
         logger.info(
-            "RAGAS scores — faithfulness=%.2f relevancy=%.2f precision=%.2f",
+            "RAGAS scores — faithfulness=%.2f relevancy=%.2f",
             scores.faithfulness or 0,
             scores.answer_relevancy or 0,
-            scores.context_precision or 0,
         )
 
         # ── Log to Langfuse if available ───────────────────────────────────
-        if tracer and tracer.enabled:
+        if tracer and tracer.enabled and trace_id and hasattr(tracer._client, "create_score"):
             try:
-                with tracer.trace("ragas-eval", query=query) as tr:
-                    tracer.log_generation(
-                        tr,
-                        name="ragas",
-                        prompt=query,
-                        completion=answer,
-                        model=GROQ_MODEL,
-                        latency_ms=0,
-                        metadata={
-                            "faithfulness": scores.faithfulness,
-                            "answer_relevancy": scores.answer_relevancy,
-                            "context_precision": scores.context_precision,
-                        },
+                if scores.faithfulness is not None:
+                    tracer._client.create_score(
+                        trace_id=trace_id, name="faithfulness", value=scores.faithfulness, data_type="NUMERIC"
+                    )
+                if scores.answer_relevancy is not None:
+                    tracer._client.create_score(
+                        trace_id=trace_id, name="answer_relevancy", value=scores.answer_relevancy, data_type="NUMERIC"
                     )
             except Exception as exc:
                 logger.warning("RAGAS Langfuse logging failed: %s", exc)
@@ -156,6 +160,7 @@ def run_eval_async(
     session_state: dict,
     session_key: str,
     tracer=None,
+    trace_id: str | None = None,
 ) -> None:
     """
     Fire a background thread to evaluate the answer with RAGAS.
@@ -171,12 +176,13 @@ def run_eval_async(
         session_state: Reference to st.session_state (or any dict).
         session_key:   Key to write the RagasScores result into.
         tracer:        Optional Langfuse tracer for logging.
+        trace_id:      Optional Langfuse trace ID to attach scores to.
     """
     session_state[session_key] = None  # mark as "pending"
 
     thread = threading.Thread(
         target=_run_ragas,
-        args=(query, answer, contexts, session_state, session_key, tracer),
+        args=(query, answer, contexts, session_state, session_key, tracer, trace_id),
         daemon=True,
         name=f"ragas-eval-{session_key}",
     )

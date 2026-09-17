@@ -77,12 +77,13 @@ def render_rating(idx: int, subquery: str, trace_id: str | None = None):
             # Log score to Langfuse if tracing is enabled
             if trace_id:
                 tracer = get_tracer()
-                if tracer.enabled and hasattr(tracer._client, "score"):
+                if tracer.enabled and hasattr(tracer._client, "create_score"):
                     try:
-                        tracer._client.score(
+                        tracer._client.create_score(
                             trace_id=trace_id,
                             name="user-rating",
-                            value=rating,
+                            value=float(rating),
+                            data_type="NUMERIC",
                             comment=f"Rating for subquery: {subquery}"
                         )
                     except Exception:

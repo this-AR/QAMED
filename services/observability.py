@@ -42,6 +42,12 @@ class _NoOpTrace:
     def log_generation(self, *args, **kwargs):
         pass
 
+    def generation(self, *args, **kwargs):
+        pass
+
+    def span(self, *args, **kwargs):
+        return self
+
     def update(self, *args, **kwargs):
         pass
 
@@ -76,13 +82,15 @@ class LangfuseTracer:
     @contextmanager
     def trace(self, name: str, query: str = "") -> Generator[Any, None, None]:
         """
-        Context manager for a top-level Langfuse trace.
+        Context manager for a top-level Langfuse trace (Langfuse 4.x SDK).
 
         Usage:
             with tracer.trace("query-pipeline", query=user_query) as tr:
                 tracer.log_generation(tr, ...)
         """
-        with self._client.start_as_current_observation(as_type="span", name=name, input=query) as span:
+        with self._client.start_as_current_observation(
+            as_type="span", name=name, input=query
+        ) as span:
             try:
                 yield span
             except Exception:
@@ -100,10 +108,10 @@ class LangfuseTracer:
         metadata: dict | None = None,
     ):
         """
-        Log a single LLM generation span under an existing trace.
+        Log a single LLM generation span under an existing trace (Langfuse 4.x SDK).
 
         Args:
-            trace:       Trace object from tracer.trace() context.
+            trace:       Span object from tracer.trace() context.
             name:        Span name (e.g. "decomposition", "generation", "guardrail").
             prompt:      Full prompt sent to the model.
             completion:  Model response text.
@@ -119,14 +127,13 @@ class LangfuseTracer:
                 name=name,
                 model=model,
                 input=prompt,
-            ) as gen:
-                gen.update(
-                    output=completion,
-                    metadata={
-                        "latency_ms": round(latency_ms, 1),
-                        **(metadata or {}),
-                    },
-                )
+                output=completion,
+                metadata={
+                    "latency_ms": round(latency_ms, 1),
+                    **(metadata or {}),
+                },
+            ):
+                pass  # span is auto-ended on context-manager exit
         except Exception as exc:
             logger.warning("Langfuse log_generation failed: %s", exc)
 

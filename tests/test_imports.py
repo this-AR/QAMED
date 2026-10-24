@@ -42,10 +42,9 @@ def test_prompts_imports():
 
 def test_services_llm_imports():
     from services.llm import (
-        extract_subquestions, classify_query, build_prompt, stream_groq_answer,
+        extract_subquestions, build_prompt, stream_groq_answer,
     )
     assert callable(extract_subquestions)
-    assert callable(classify_query)
     assert callable(build_prompt)
     assert callable(stream_groq_answer)
 

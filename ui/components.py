@@ -99,14 +99,7 @@ def render_run_history(prompt_runs: list):
     """Render the 'Prompt run history' expander."""
     with st.expander("Prompt run history"):
         for item in reversed(prompt_runs[-20:]):
-            classification = item.get("classification", "")
-            skipped = item.get("skipped_rag", False)
-            cache_hit = item.get("cache_hit", False)
-            badge = ""
-            if cache_hit:
-                badge = "⚡ cached"
-            elif skipped:
-                badge = "→ SIMPLE"
+            badge = "⚡ cached" if item.get("cache_hit", False) else ""
             st.markdown(
                 f"- **{item['timestamp']}** | version={item.get('prompt_version')} | "
                 f"model={item['model']} | sources={item.get('sources_used', 0)} "

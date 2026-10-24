@@ -3,16 +3,20 @@ QAMed — Cache Service (v1.5)
 
 Two-level caching:
   Level 1: Exact-match via Redis (Upstash or any Redis-compatible host).
-            Key = SHA-256 of normalized query. TTL = CACHE_TTL_SECONDS.
+            Key = SHA-256 of normalized query + variant. TTL = CACHE_TTL_SECONDS.
   Level 2: Semantic cache via Qdrant query_cache collection.
-            Embeds the query → cosine similarity check → threshold 0.92.
+            Embeds the query → cosine similarity check → threshold 0.92,
+            filtered to entries with the same variant.
+
+`variant` identifies the pipeline settings that shape the answer
+(e.g. "v3|decomp=True"), so changing settings never returns a stale answer.
 
 Both levels gracefully degrade: if credentials are absent the cache is
 simply skipped and the full pipeline runs as normal.
 
 Public API:
-    check_cache(query, embedding_fn, qdrant_client) -> CacheResult | None
-    store_in_cache(query, answer, sources_text, prompt_version, embedding_fn, qdrant_client)
+    check_cache(query, variant, embedding_fn, qdrant_client) -> CacheResult | None
+    store_in_cache(query, variant, answer, sources_text, prompt_version, embedding_fn, qdrant_client)
     clear_cache(qdrant_client)
 """
 
@@ -42,8 +46,8 @@ def _normalize(query: str) -> str:
     return " ".join(query.lower().strip().split())
 
 
-def _query_key(query: str) -> str:
-    return "qamed:" + hashlib.sha256(_normalize(query).encode()).hexdigest()
+def _query_key(query: str, variant: str) -> str:
+    return "qamed:" + hashlib.sha256(f"{variant}|{_normalize(query)}".encode()).hexdigest()
 
 
 # ── Result container ──────────────────────────────────────────────────────────
@@ -73,12 +77,12 @@ def _get_redis():
         return None
 
 
-def _exact_cache_get(query: str) -> CacheResult | None:
+def _exact_cache_get(query: str, variant: str) -> CacheResult | None:
     r = _get_redis()
     if r is None:
         return None
     try:
-        raw = r.get(_query_key(query))
+        raw = r.get(_query_key(query, variant))
         if raw:
             data = json.loads(raw)
             return CacheResult(
@@ -92,7 +96,7 @@ def _exact_cache_get(query: str) -> CacheResult | None:
     return None
 
 
-def _exact_cache_set(query: str, answer: str, sources_text: str, prompt_version: str | None):
+def _exact_cache_set(query: str, variant: str, answer: str, sources_text: str, prompt_version: str | None):
     r = _get_redis()
     if r is None:
         return
@@ -103,7 +107,7 @@ def _exact_cache_set(query: str, answer: str, sources_text: str, prompt_version:
             "prompt_version": prompt_version,
             "cached_at": time.time(),
         })
-        r.setex(_query_key(query), CACHE_TTL_SECONDS, payload)
+        r.setex(_query_key(query, variant), CACHE_TTL_SECONDS, payload)
     except Exception as exc:
         logger.warning("Exact cache write error: %s", exc)
 
@@ -121,21 +125,28 @@ def _ensure_semantic_collection(qdrant_client, vector_size: int = 768):
                 vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
             )
             logger.info("Created semantic cache collection: %s", SEMANTIC_CACHE_COLLECTION)
+        qdrant_client.create_payload_index(
+            collection_name=SEMANTIC_CACHE_COLLECTION,
+            field_name="variant",
+            field_schema="keyword",
+        )
     except Exception as exc:
         logger.warning("Could not ensure semantic cache collection: %s", exc)
 
 
-def _semantic_cache_get(query: str, embedding_fn: Callable, qdrant_client) -> CacheResult | None:
+def _semantic_cache_get(query: str, variant: str, embedding_fn: Callable, qdrant_client) -> CacheResult | None:
     if qdrant_client is None:
         return None
     try:
+        from qdrant_client.models import FieldCondition, Filter, MatchValue  # type: ignore
         vector = embedding_fn(query)
-        results = qdrant_client.search(
+        results = qdrant_client.query_points(
             collection_name=SEMANTIC_CACHE_COLLECTION,
-            query_vector=vector,
+            query=vector,
+            query_filter=Filter(must=[FieldCondition(key="variant", match=MatchValue(value=variant))]),
             limit=1,
             score_threshold=SEMANTIC_CACHE_THRESHOLD,
-        )
+        ).points
         if results:
             hit = results[0]
             payload = hit.payload or {}
@@ -153,6 +164,7 @@ def _semantic_cache_get(query: str, embedding_fn: Callable, qdrant_client) -> Ca
 
 def _semantic_cache_set(
     query: str,
+    variant: str,
     answer: str,
     sources_text: str,
     prompt_version: str | None,
@@ -164,7 +176,7 @@ def _semantic_cache_set(
     try:
         vector = embedding_fn(query)
         _ensure_semantic_collection(qdrant_client, vector_size=len(vector))
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, _normalize(query)))
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{variant}|{_normalize(query)}"))
         from qdrant_client.models import PointStruct  # type: ignore
         qdrant_client.upsert(
             collection_name=SEMANTIC_CACHE_COLLECTION,
@@ -174,6 +186,7 @@ def _semantic_cache_set(
                     vector=vector,
                     payload={
                         "query": _normalize(query),
+                        "variant": variant,
                         "answer": answer,
                         "sources_text": sources_text,
                         "prompt_version": prompt_version,
@@ -190,6 +203,7 @@ def _semantic_cache_set(
 
 def check_cache(
     query: str,
+    variant: str,
     embedding_fn: Callable[[str], list[float]],
     qdrant_client,
 ) -> CacheResult | None:
@@ -199,21 +213,23 @@ def check_cache(
 
     Args:
         query:         Raw user query string.
+        variant:       Pipeline settings string; only entries with the same variant match.
         embedding_fn:  Callable that takes a string and returns a float list.
         qdrant_client: Initialized Qdrant client (used for semantic cache).
     """
     # Level 1: exact match
-    result = _exact_cache_get(query)
+    result = _exact_cache_get(query, variant)
     if result:
         return result
 
     # Level 2: semantic match
-    result = _semantic_cache_get(query, embedding_fn, qdrant_client)
+    result = _semantic_cache_get(query, variant, embedding_fn, qdrant_client)
     return result
 
 
 def store_in_cache(
     query: str,
+    variant: str,
     answer: str,
     sources_text: str,
     prompt_version: str | None,
@@ -224,8 +240,8 @@ def store_in_cache(
     Store the answer in both cache levels.
     Safe to call unconditionally — will no-op if credentials are absent.
     """
-    _exact_cache_set(query, answer, sources_text, prompt_version)
-    _semantic_cache_set(query, answer, sources_text, prompt_version, embedding_fn, qdrant_client)
+    _exact_cache_set(query, variant, answer, sources_text, prompt_version)
+    _semantic_cache_set(query, variant, answer, sources_text, prompt_version, embedding_fn, qdrant_client)
 
 
 def clear_cache(qdrant_client=None):

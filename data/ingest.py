@@ -259,50 +259,6 @@ def generate_chunk_context(parent_text: str, chunk_text: str) -> dict:
         return {}
 
 
-# ── Coreference Resolution ────────────────────────────────────────────────────
-def extract_subject_from_heading(heading: str) -> str:
-    """Extract the anatomical subject from a section heading.
-    
-    e.g., 'The Femoral Nerve — Course and Relations' → 'The Femoral Nerve'
-    e.g., 'Inguinal Canal' → 'The Inguinal Canal'
-    """
-    if not heading:
-        return ""
-    # Remove common suffixes
-    for sep in ["—", "–", "-", ":"]:
-        heading = heading.split(sep)[0].strip()
-    # Remove markdown
-    heading = heading.lstrip("# ").strip()
-    # Skip overly generic headings
-    if len(heading.split()) > 6 or len(heading) < 4:
-        return ""
-    if heading.lower() in ("introduction", "summary", "clinical anatomy", "review questions"):
-        return ""
-    # Add "The" if missing for natural text flow
-    if not heading.lower().startswith("the "):
-        heading = f"The {heading}"
-    return heading
-
-
-def resolve_coreferences(text: str, section_heading: str) -> str:
-    """Replace common anatomical dangling pronouns with the section subject."""
-    subject = extract_subject_from_heading(section_heading)
-    if not subject:
-        return text
-    
-    patterns = [
-        # "It passes/runs/crosses..." → "The Femoral Nerve passes/runs/crosses..."
-        (r'\bIt (is |passes |runs |crosses |supplies |innervates |enters |exits |pierces |arises |descends |ascends )',
-         f'{subject} \\1'),
-        # "This structure/organ/muscle..." → "The Femoral Nerve"
-        (r'\bThis (structure|organ|muscle|nerve|vessel|canal|ligament|artery|vein|foramen) ',
-         f'{subject} '),
-    ]
-    for pattern, replacement in patterns:
-        text = re.sub(pattern, replacement, text, count=3, flags=re.IGNORECASE)
-    return text
-
-
 # ── Table Header Repetition ───────────────────────────────────────────────────
 def ensure_table_headers(chunk_text: str, parent_text: str) -> str:
     """If a chunk starts mid-table (no header separator), prepend the table's header rows."""
@@ -355,8 +311,8 @@ def make_chunk_id(book_name: str, section: str, chunk_index: int, text: str) -> 
     raw = f"{book_name}|{section}|{chunk_index}|{hashlib.sha256(text.encode()).hexdigest()[:8]}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
-def make_parent_id(book_name: str, section_heading: str) -> str:
-    raw = f"{book_name}|{section_heading}"
+def make_parent_id(book_name: str, chapter: str, section_heading: str) -> str:
+    raw = f"{book_name}|{chapter}|{section_heading}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
@@ -448,15 +404,15 @@ def hierarchical_chunk(docs, book_name: str, doc_store: DocumentStore) -> list:
         if not content:
             continue
             
-        label = doc.metadata.get("dl_meta", {}).get("doc_items", [{}])[0].get("label", "")
-        
         pdf_page = extract_book_page(doc)
         chapter = get_chapter_by_page(pdf_page)
-        
-        if content.startswith("## ") or label == "section_header":
-            section = content.lstrip("# ").strip()
-            
-        parent_id = make_parent_id(book_name, section)
+
+        # Docling consumes heading items and attaches the heading path to each chunk
+        headings = doc.metadata.get("dl_meta", {}).get("headings")
+        if headings:
+            section = headings[-1].strip()
+
+        parent_id = make_parent_id(book_name, chapter, section)
         if parent_id not in sections_dict:
             sections_dict[parent_id] = {
                 'chapter': chapter,
@@ -475,11 +431,7 @@ def hierarchical_chunk(docs, book_name: str, doc_store: DocumentStore) -> list:
     # Process each section
     for parent_id, sec_data in sections_dict.items():
         section_text = "\n\n".join(sec_data['text_blocks'])
-        
-        # Apply coreference resolution on the full section before chunking
-        section_text = resolve_coreferences(section_text, sec_data['section'])
-        
-        # Store parent (with resolved coreferences)
+
         doc_store.store_parent(parent_id, {
             "text": section_text,
             "chapter": sec_data['chapter'],
@@ -493,8 +445,6 @@ def hierarchical_chunk(docs, book_name: str, doc_store: DocumentStore) -> list:
         chunk_index = 0
         for doc in sec_data['elements']:
             content = doc.page_content.strip()
-            # Apply coreference resolution on element text too
-            content = resolve_coreferences(content, sec_data['section'])
             label = doc.metadata.get("dl_meta", {}).get("doc_items", [{}])[0].get("label", "")
             
             # Find offset of this element within the section text

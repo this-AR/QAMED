@@ -7,7 +7,7 @@ from datetime import datetime
 # Make sure we can import from the parent directory
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import GROQ_MODEL, GROQ_API_KEY, EMBEDDING_MODEL_NAME
+from config import GROQ_MODEL, GROQ_API_KEY
 from services.retrieval import load_models_and_clients, retrieve
 from services.llm import build_prompt, stream_groq_answer
 from services.guardrails import check_hallucination
@@ -19,7 +19,6 @@ from ragas import evaluate
 from ragas.metrics import faithfulness, answer_relevancy
 from langchain_groq import ChatGroq
 from ragas.llms import LangchainLLMWrapper
-from langchain_huggingface import HuggingFaceEmbeddings
 
 def run_benchmark():
     print("Loading models and clients...")
@@ -27,7 +26,7 @@ def run_benchmark():
     
     # bypass_n: Groq rejects n>1, which answer_relevancy requests (n=3)
     llm = LangchainLLMWrapper(ChatGroq(model=GROQ_MODEL, api_key=GROQ_API_KEY, temperature=0), bypass_n=True)
-    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
+    embeddings = vectorstore.embeddings  # already loaded; don't load the model twice
     
     methods = ["hybrid", "dense"]
     prompts = ["v1", "v2", "v3"]
@@ -68,7 +67,7 @@ def run_benchmark():
                 answer = "".join(list(stream_groq_answer(groq_client, GROQ_MODEL, sys_msg, usr_msg)))
                 gen_latency = time.time() - t0
                 
-                guardrail = check_hallucination(answer, context_chunks, groq_client, GROQ_MODEL, embed_batch_fn=vectorstore.embeddings.embed_documents)
+                guardrail = check_hallucination(answer, [doc.page_content for doc in top_docs] + context_chunks, groq_client, GROQ_MODEL, embed_batch_fn=vectorstore.embeddings.embed_documents)
                 
                 # RAGAS evaluation
                 dataset = Dataset.from_dict({

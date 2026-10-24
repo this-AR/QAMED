@@ -14,7 +14,6 @@ import os
 import uuid
 import hashlib
 import json
-import re
 import concurrent.futures
 from tqdm import tqdm
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -259,43 +258,6 @@ def generate_chunk_context(parent_text: str, chunk_text: str) -> dict:
         return {}
 
 
-# ── Table Header Repetition ───────────────────────────────────────────────────
-def ensure_table_headers(chunk_text: str, parent_text: str) -> str:
-    """If a chunk starts mid-table (no header separator), prepend the table's header rows."""
-    lines = chunk_text.strip().split("\n")
-    if not lines or not lines[0].strip().startswith("|"):
-        return chunk_text  # Not a table chunk
-    
-    # Check if chunk already has a header separator (e.g., |---|---|)
-    for line in lines[:3]:
-        if re.search(r'\|[-:]+\|', line):
-            return chunk_text  # Already has headers
-    
-    # Find the nearest table header in the parent text before this chunk's content
-    chunk_start = parent_text.find(lines[0][:60])
-    if chunk_start <= 0:
-        return chunk_text
-    
-    # Search backward from chunk_start for a header separator line
-    preceding = parent_text[:chunk_start]
-    preceding_lines = preceding.split("\n")
-    
-    header_lines = []
-    for i in range(len(preceding_lines) - 1, -1, -1):
-        line = preceding_lines[i].strip()
-        if re.search(r'\|[-:]+\|', line):
-            # Found separator — grab it and the line above (column names)
-            header_lines = []
-            if i > 0:
-                header_lines.append(preceding_lines[i - 1])
-            header_lines.append(preceding_lines[i])
-            break
-    
-    if header_lines:
-        return "\n".join(header_lines) + "\n" + chunk_text
-    return chunk_text
-
-
 
 print(f"Loading Tokenizer {EMBEDDING_MODEL_NAME}...")
 try:
@@ -490,8 +452,7 @@ def hierarchical_chunk(docs, book_name: str, doc_store: DocumentStore) -> list:
                 )
                 
                 for pc in para_chunks:
-                    # Apply table header repetition if chunk starts mid-table
-                    pc_text = ensure_table_headers(pc.text, section_text)
+                    pc_text = pc.text
                     chunk_id = make_chunk_id(book_name, sec_data['section'], chunk_index, pc_text)
                     chunk_metadata = {
                         "chunk_id": chunk_id,

@@ -14,13 +14,15 @@ import os
 import uuid
 import hashlib
 import json
+import threading
+import time as _time
 import concurrent.futures
 from tqdm import tqdm
 from tenacity import retry, stop_after_attempt, wait_exponential
 from groq import Groq
+import google.generativeai as genai
 
 import pysbd
-from transformers import AutoTokenizer
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_docling.loader import DoclingLoader, ExportType
 from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -44,8 +46,11 @@ from config import (
     PARAGRAPH_CHUNK_TOKENS,
     CHUNK_OVERLAP_TOKENS,
     DOC_STORE_PATH,
+    CONTEXT_API_KEYS,
+    CONTEXT_WORKERS,
 )
 from data.doc_store import DocumentStore
+from services.retrieval import token_length
 
 SENTENCE_SEGMENTER = pysbd.Segmenter(language="en", clean=False)
 
@@ -98,12 +103,6 @@ def get_chapter_by_page(pdf_page):
     return "Unknown Chapter"
 
 # ── Contextual Micro-Headers (v2.5 — Multi-Provider) ─────────────────────────
-import threading
-import time as _time
-import google.generativeai as genai
-
-from config import CONTEXT_API_KEYS, CONTEXT_WORKERS
-
 CONTEXT_PROMPT_TEMPLATE = (
     "You are an expert medical librarian. Below is a section from a medical textbook, "
     "followed by a specific chunk extracted from that section.\n\n"
@@ -230,8 +229,6 @@ def get_rotator() -> APIKeyRotator | None:
     return _rotator
 
 
-import json
-
 def generate_chunk_context(parent_text: str, chunk_text: str) -> dict:
     """Generate a situating summary and metadata for a chunk using multi-key rotation."""
     rotator = get_rotator()
@@ -257,17 +254,6 @@ def generate_chunk_context(parent_text: str, chunk_text: str) -> dict:
         print(f"Failed to parse JSON context for chunk. Raw: {raw_response[:100]}")
         return {}
 
-
-
-print(f"Loading Tokenizer {EMBEDDING_MODEL_NAME}...")
-try:
-    TOKENIZER = AutoTokenizer.from_pretrained(EMBEDDING_MODEL_NAME)
-except Exception as e:
-    print(f"Warning: Could not load tokenizer ({e}). Falling back to gpt2.")
-    TOKENIZER = AutoTokenizer.from_pretrained("gpt2")
-
-def token_length(text: str) -> int:
-    return len(TOKENIZER.encode(text, add_special_tokens=False))
 
 def make_chunk_id(book_name: str, section: str, chunk_index: int, text: str) -> str:
     raw = f"{book_name}|{section}|{chunk_index}|{hashlib.sha256(text.encode()).hexdigest()[:8]}"

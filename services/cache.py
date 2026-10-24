@@ -5,8 +5,8 @@ Two-level caching:
   Level 1: Exact-match via Redis (Upstash or any Redis-compatible host).
             Key = SHA-256 of normalized query + variant. TTL = CACHE_TTL_SECONDS.
   Level 2: Semantic cache via Qdrant query_cache collection.
-            Embeds the query → cosine similarity check → threshold 0.92,
-            filtered to entries with the same variant.
+            Embeds the query → cosine similarity check → threshold 0.98,
+            filtered to entries with the same variant and younger than CACHE_TTL_SECONDS.
 
 `variant` identifies the pipeline settings that shape the answer
 (e.g. "v3|decomp=True"), so changing settings never returns a stale answer.
@@ -22,6 +22,7 @@ Public API:
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
@@ -63,13 +64,17 @@ class CacheResult:
 
 # ── Redis (Level 1 — Exact Match) ────────────────────────────────────────────
 
+@functools.cache
 def _get_redis():
-    """Return a Redis client or None if REDIS_URL is not configured."""
+    """Return a Redis client or None if REDIS_URL is not configured.
+
+    Connected once per process; if Redis is down at startup the cache stays off.
+    """
     if not REDIS_URL:
         return None
     try:
         import redis  # type: ignore
-        client = redis.from_url(REDIS_URL, decode_responses=True)
+        client = redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2, socket_timeout=2)
         client.ping()
         return client
     except Exception as exc:
@@ -130,6 +135,11 @@ def _ensure_semantic_collection(qdrant_client, vector_size: int = 768):
             field_name="variant",
             field_schema="keyword",
         )
+        qdrant_client.create_payload_index(
+            collection_name=SEMANTIC_CACHE_COLLECTION,
+            field_name="cached_at",
+            field_schema="float",
+        )
     except Exception as exc:
         logger.warning("Could not ensure semantic cache collection: %s", exc)
 
@@ -138,12 +148,15 @@ def _semantic_cache_get(query: str, variant: str, embedding_fn: Callable, qdrant
     if qdrant_client is None:
         return None
     try:
-        from qdrant_client.models import FieldCondition, Filter, MatchValue  # type: ignore
+        from qdrant_client.models import FieldCondition, Filter, MatchValue, Range  # type: ignore
         vector = embedding_fn(query)
         results = qdrant_client.query_points(
             collection_name=SEMANTIC_CACHE_COLLECTION,
             query=vector,
-            query_filter=Filter(must=[FieldCondition(key="variant", match=MatchValue(value=variant))]),
+            query_filter=Filter(must=[
+                FieldCondition(key="variant", match=MatchValue(value=variant)),
+                FieldCondition(key="cached_at", range=Range(gte=time.time() - CACHE_TTL_SECONDS)),
+            ]),
             limit=1,
             score_threshold=SEMANTIC_CACHE_THRESHOLD,
         ).points

@@ -49,7 +49,7 @@ def extract_subquestions(groq_client, model: str, query: str) -> list[str]:
 
     output = response.choices[0].message.content
     raw = re.findall(r"\d+\.\s*(.+)", output)
-    result = [q.strip() for q in raw if q.strip()]
+    result = [q.strip() for q in raw if q.strip()][:3]  # prompt asks for at most 3; each costs ~3 LLM calls
     return result if result else [query]
 
 

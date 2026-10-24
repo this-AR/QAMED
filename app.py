@@ -148,6 +148,9 @@ active_prompt_version = st.selectbox(
 )
 st.caption(f"Active prompt version: {active_prompt_version}")
 
+# Settings that change the answer — cached answers only match the same variant
+cache_variant = f"{active_prompt_version}|decomp={use_decomposition}|hybrid={USE_HYBRID_SEARCH}"
+
 
 # ── Main Query Handler ────────────────────────────────────────────────────────
 if st.button("Ask", type="primary") and query.strip():
@@ -158,7 +161,7 @@ if st.button("Ask", type="primary") and query.strip():
         trace_id = getattr(trace, "trace_id", None) if trace else None
 
         # ── Level 1 & 2: Cache check ──────────────────────────────────────
-        cache_result: CacheResult | None = check_cache(query, _embed_query, _qdrant_client)
+        cache_result: CacheResult | None = check_cache(query, cache_variant, _embed_query, _qdrant_client)
 
         if cache_result is not None:
             render_cache_badge(cache_result.hit_type, cache_result.similarity)
@@ -244,6 +247,7 @@ if st.button("Ask", type="primary") and query.strip():
                 full_answer_parts: list[str] = []
                 full_sources_text_parts: list[str] = []
                 subquery_data = []
+                all_grounded = True
 
                 for idx, subquery in enumerate(subqueries, start=1):
                     st.subheader(f"Subquestion {idx}: {subquery}")
@@ -370,6 +374,7 @@ if st.button("Ask", type="primary") and query.strip():
                             metadata={"label": guardrail.label, "retry": True},
                         )
 
+                    all_grounded = all_grounded and guardrail.is_grounded
                     render_guardrail_badge(guardrail.is_grounded, guardrail.explanation)
                     st.caption(f"Prompt version used: {used_prompt_version}")
 
@@ -423,14 +428,17 @@ if st.button("Ask", type="primary") and query.strip():
 
                 combined_answer = "\n\n---\n\n".join(full_answer_parts)
                 combined_sources = "\n\n".join(full_sources_text_parts)
-                store_in_cache(
-                    query=query,
-                    answer=combined_answer,
-                    sources_text=combined_sources,
-                    prompt_version=active_prompt_version,
-                    embedding_fn=_embed_query,
-                    qdrant_client=_qdrant_client,
-                )
+                # Don't cache A/B comparisons or answers that failed the guardrail
+                if not ab_testing and all_grounded:
+                    store_in_cache(
+                        query=query,
+                        variant=cache_variant,
+                        answer=combined_answer,
+                        sources_text=combined_sources,
+                        prompt_version=active_prompt_version,
+                        embedding_fn=_embed_query,
+                        qdrant_client=_qdrant_client,
+                    )
 
                 elapsed = time.time() - start_time
                 st.caption(f"Completed in {elapsed:.2f}s")

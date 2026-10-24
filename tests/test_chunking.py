@@ -120,3 +120,30 @@ def test_parent_expansion_deduplicates(tmp_path):
     expanded = expand_to_parents(docs, store, 3000)
     assert len(expanded) == 1
     assert expanded[0]["text"] == "Shared parent text"
+
+def _docling_doc(text, page, headings):
+    return Document(page_content=text, metadata={"dl_meta": {
+        "doc_items": [{"label": "text", "prov": [{"page_no": page}]}],
+        "headings": headings,
+    }})
+
+def test_hierarchical_chunk_groups_by_docling_headings(tmp_path, monkeypatch):
+    """Sections come from dl_meta headings; same heading in two chapters stays separate."""
+    import data.ingest as ingest
+    monkeypatch.setattr(ingest, "get_rotator", lambda: None)
+    store = DocumentStore(str(tmp_path / "hc.db"))
+
+    docs = [
+        _docling_doc("The anterior wall has nine layers.", 40, ["Anterior Abdominal Wall"]),
+        _docling_doc("It passes through the wall.", 41, ["Anterior Abdominal Wall", "Clinical Anatomy"]),
+        _docling_doc("Hernia occurs through the canal.", 62, ["Inguinal Canal", "Clinical Anatomy"]),
+    ]
+    chunks = ingest.hierarchical_chunk(docs, "book.pdf", store)
+
+    assert store.stats()["total_parents"] == 3
+    by_text = {c.page_content: c.metadata for c in chunks}
+    assert by_text["Hernia occurs through the canal."]["chapter"] == "Inguinal Region/Groin"
+    assert by_text["It passes through the wall."]["chapter"] == "Anterior Abdominal Wall"
+    assert by_text["It passes through the wall."]["parent_id"] != by_text["Hernia occurs through the canal."]["parent_id"]
+    # Textbook text is stored verbatim (no coreference rewriting)
+    assert "It passes through the wall." in by_text

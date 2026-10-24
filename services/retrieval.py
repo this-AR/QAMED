@@ -87,20 +87,17 @@ def build_bm25_index(qdrant_client: QdrantClient, collection_name: str):
     """Scroll Qdrant collection, tokenize text, build BM25 index."""
     points = []
     offset = None
-    try:
-        while True:
-            page, offset = qdrant_client.scroll(
-                collection_name=collection_name,
-                limit=10000,
-                offset=offset,
-                with_payload=True,
-                with_vectors=False,
-            )
-            points.extend(page)
-            if offset is None:
-                break
-    except Exception:
-        points = []
+    while True:
+        page, offset = qdrant_client.scroll(
+            collection_name=collection_name,
+            limit=10000,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        points.extend(page)
+        if offset is None:
+            break
 
     corpus_docs = []
     tokenized_corpus = []
@@ -239,12 +236,18 @@ def expand_to_parents(leaf_docs: list, doc_store: DocumentStore, max_tokens: int
         
     expanded = []
     seen_parents = set()
-    
+    truncated_parents = set()
+
     for doc in leaf_docs:
         parent_id = doc.metadata.get("parent_id")
-        if not parent_id or parent_id in seen_parents:
+        if not parent_id:
             continue
-            
+        if parent_id in seen_parents:
+            # The truncated window is centred on an earlier leaf and may not reach this one
+            if parent_id in truncated_parents:
+                expanded.append({"parent_id": parent_id, "text": doc.page_content})
+            continue
+
         parent_data = doc_store.get_parent(parent_id)
         if parent_data:
             leaf_offset = doc.metadata.get("leaf_offset", 0)
@@ -257,7 +260,8 @@ def expand_to_parents(leaf_docs: list, doc_store: DocumentStore, max_tokens: int
                     leaf_length, 
                     max_tokens
                 )
-                
+                truncated_parents.add(parent_id)
+
             expanded.append(parent_data)
             seen_parents.add(parent_id)
             

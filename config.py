@@ -32,7 +32,8 @@ DEFAULT_PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v3")
 # Example: redis://default:<password>@<host>:<port>
 REDIS_URL = os.getenv("REDIS_URL")
 CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "86400"))  # 24 hours
-SEMANTIC_CACHE_THRESHOLD = float(os.getenv("SEMANTIC_CACHE_THRESHOLD", "0.92"))
+# Different questions score up to ~0.96 ("inguinal" vs "femoral canal contents")
+SEMANTIC_CACHE_THRESHOLD = float(os.getenv("SEMANTIC_CACHE_THRESHOLD", "0.98"))
 SEMANTIC_CACHE_COLLECTION = os.getenv("SEMANTIC_CACHE_COLLECTION", "query_cache")
 
 # ── Langfuse Tracing (v1.5) ───────────────────────────────────────────────────

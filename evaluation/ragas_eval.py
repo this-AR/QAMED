@@ -65,6 +65,7 @@ def _run_ragas(
             faithfulness,
             answer_relevancy,
         )
+        from ragas.llms import LangchainLLMWrapper  # type: ignore
         from langchain_groq import ChatGroq  # type: ignore
 
         # ── Build dataset ──────────────────────────────────────────────────
@@ -77,10 +78,10 @@ def _run_ragas(
         dataset = Dataset.from_dict(data)
 
         # ── LLM + embeddings for RAGAS ─────────────────────────────────────
-        llm = ChatGroq(
-            model=GROQ_MODEL,
-            api_key=GROQ_API_KEY,
-            temperature=0,
+        # bypass_n: Groq rejects n>1, which answer_relevancy requests (n=3)
+        llm = LangchainLLMWrapper(
+            ChatGroq(model=GROQ_MODEL, api_key=GROQ_API_KEY, temperature=0),
+            bypass_n=True,
         )
 
         # ── Run evaluation ─────────────────────────────────────────────────

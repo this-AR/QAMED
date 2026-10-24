@@ -43,7 +43,7 @@ By leveraging **Docling** for deep PDF structural parsing, **Qdrant** + **BM25**
 │ • Qdrant (Dense)│    │ & Reranking      │    │ Generation      │
 │ • SQLite (Text) │    │ • Dense + BM25   │    │ • Groq LLMs     │
 │ • S-PubMedBert  │    │ • RRF Fusion     │    │ • v3 Prompt     │
-│ • BM25 Index    │    │ • BGE Reranker   │    │ • Streaming     │
+│ • BM25 Index    │    │ • MiniLM Reranker│    │ • Streaming     │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
@@ -51,22 +51,21 @@ By leveraging **Docling** for deep PDF structural parsing, **Qdrant** + **BM25**
 
 - **🏥 Advanced Ingestion Pipeline**
   - **Docling PDF Parsing:** Natively parses complex medical tables, clinical diagrams, and two-column layouts.
-  - **Contextual Micro-Headers:** Every chunk is passed through an LLM during ingestion to generate hierarchical breadcrumbs and anatomical summaries, ensuring disambiguation.
-  - **Parent-Child Strategy:** Chunks are small (200 tokens) for precise vector matching, but map to larger parent sections stored in a local SQLite database for context-rich generation.
+  - **Contextual Micro-Headers (optional):** When `CONTEXT_API_KEYS` is set, every chunk is passed through an LLM during ingestion to generate hierarchical breadcrumbs and anatomical summaries, ensuring disambiguation.
+  - **Parent-Child Strategy:** Chunks are small (200 tokens) for precise vector matching, but map to larger parent sections (one per Docling heading within a chapter) stored in a local SQLite database for context-rich generation.
 
 - **🧠 Intelligent Query Processing**
   - **LLM-Based Decomposition:** Breaks down multi-part complex medical questions into independent sub-queries.
-  - **Query Caching:** Skips expensive retrieval for exact-match or semantically similar repeated questions.
-  - **SIMPLE vs. COMPLEX Routing:** Bypasses LLM generation for simple definitional queries, extracting raw textbook sentences directly.
+  - **Query Caching:** Skips expensive retrieval for exact-match or semantically similar repeated questions asked with the same prompt version and settings.
 
 - **🎯 Sophisticated Hybrid Retrieval**
   - **Dense Search (Qdrant):** Powered by `S-PubMedBert` embeddings for deep semantic understanding.
   - **Sparse Search (BM25):** Built dynamically in-memory at startup to catch exact drug names and anatomical terminology.
-  - **Reciprocal Rank Fusion (RRF):** Fuses Dense and Sparse results (Top K=75).
-  - **Cross-Encoder Reranking:** Filters the noisy Top 75 pool down to the absolute best 6 chunks using `BAAI/bge-reranker-base`.
+  - **Reciprocal Rank Fusion (RRF):** Fuses Dense (top 30) and Sparse (top 75) results.
+  - **Cross-Encoder Reranking:** Filters the fused pool down to the best 6 chunks using `cross-encoder/ms-marco-MiniLM-L-6-v2`.
 
 - **🤖 High-Quality Answer Generation**
-  - **Groq LLMs:** Llama 3.1 70B powers the synthesis with ultra-fast token streaming.
+  - **Groq LLMs:** `openai/gpt-oss-120b` (configurable via `GROQ_MODEL`) powers the synthesis with ultra-fast token streaming.
   - **Medical-Specific Prompting (v3):** Explicitly instructed to synthesize cohesive, textbook-quality flowing responses and filter out MCQs or non-textbook artifacts.
 
 ## Prerequisites & Installation
@@ -128,9 +127,9 @@ Upon startup, the app will connect to Qdrant, download your chunks, and dynamica
 ## 📝 Third-Party Licenses
 | Component | Author | License |
 |-----------|--------|---------|
-| Llama 3.1 (Groq API) | Meta | Llama 3.1 License |
+| gpt-oss-120b (Groq API) | OpenAI | Apache 2.0 |
 | S-PubMedBert-MS-MARCO | Pritam Deka | MIT |
 | Docling | IBM | MIT |
-| BGE Reranker | BAAI | MIT |
+| ms-marco-MiniLM-L-6-v2 Reranker | Sentence Transformers | Apache 2.0 |
 
 *The above models are downloaded at runtime via Hugging Face Hub or accessed via API.*

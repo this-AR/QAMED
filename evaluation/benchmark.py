@@ -66,7 +66,7 @@ def run_benchmark():
                 answer = "".join(list(stream_groq_answer(groq_client, GROQ_MODEL, sys_msg, usr_msg)))
                 gen_latency = time.time() - t0
                 
-                guardrail = check_hallucination(answer, context_chunks, groq_client, GROQ_MODEL, embedding_fn=vectorstore.embeddings.embed_query)
+                guardrail = check_hallucination(answer, context_chunks, groq_client, GROQ_MODEL, embed_batch_fn=vectorstore.embeddings.embed_documents)
                 
                 # RAGAS evaluation
                 dataset = Dataset.from_dict({

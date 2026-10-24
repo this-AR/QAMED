@@ -44,6 +44,7 @@
 ### BM25 / RRF Fusion
 - **Decision:** Dropped from scope for now.
 - **Reasoning:** Although mentioned in early designs, the current production codebase only uses Qdrant dense retrieval. Introducing hybrid sparse-dense search is a separate architectural addition that needs its own testing and maintenance (e.g., idempotency on re-ingestion).
+- **Superseded:** Hybrid BM25 + RRF was added later and enabled by default in v2.6 (see Phase 5).
 
 ### Idempotent Re-ingestion
 - **Decision:** Changed `--force` re-ingestion from an upsert-by-ID pattern to a delete-by-book-then-insert pattern.
@@ -61,6 +62,7 @@
   1. The raw 300-token chunks were occasionally split midway through a sentence by the text splitter. Pulling from the SQLite parent section via `leaf_offset` guarantees clean, full sentences.
   2. 2 sentences were often too short for medical definitions. 5 sentences provide a comprehensive paragraph.
 - **Tradeoff:** SIMPLE queries still do not get a synthesized LLM answer, but the raw text extraction is now high-quality and readable.
+- **Superseded:** The extraction bypass was later dropped from `app.py` (SIMPLE only skipped decomposition), and the classifier itself was removed in Phase 6.
 
 ### Rating Slider Visibility
 - **Decision:** Moved the Langfuse rating slider UI rendering outside of the COMPLEX RAG pipeline loop.
@@ -176,3 +178,29 @@ While the core pipeline (Docling, Hybrid Search, Qdrant Cloud, Groq streaming, C
     > *Original text snippet:* "The inguinal canal is a narrow oblique passage in the lower part of the anterior abdominal wall. It extends from the deep inguinal ring..."
     > *Compressed snippet:* "inguinal canal narrow oblique passage anterior abdominal wall extends from deep inguinal ring... transmits spermatic cord round ligament..."
 - **Decision:** **SKIP (For Now).** While the token savings are impressive, running the compressor locally on a CPU takes ~1.8s. Because Groq's LPU processes tokens so fast (~500-800 tps), it only takes Groq ~1.0s to read those extra tokens anyway. Therefore, the CPU compression step actually *adds* ~0.8s of net latency to the pipeline. We will keep the script for future GPU-based deployments, but leave it out of the active retrieval pipeline to maximize speed.
+  - *Update (Phase 6):* The script was deleted (unused, and `llmlingua` was never in requirements); the results above are the record. Recover it from git history if GPU deployment happens.
+
+## Phase 6: Code Review Fixes
+
+### Section Grouping from Docling Headings
+- **Problem:** The committed `doc_store.db` held a single parent ("Unknown Section", ~302k tokens, the whole book). Docling's chunker consumes heading items and never emits them as chunks, so the `"## "` / `section_header` check never matched. Every chunk shared one parent, `expand_to_parents` de-duplicated the 6 reranked chunks down to one 2048-token window, and every source showed "Unknown Chapter".
+- **Decision:** Read the section from `dl_meta["headings"][-1]`, and include the chapter in `parent_id` so repeated headings ("Clinical Anatomy") in different chapters stay separate. Requires re-ingest with `--force`.
+
+### Coreference Rewriting Removed
+- **Decision:** Removed regex rewriting of "It passes…" → "The <Heading> passes…".
+- **Reasoning:** It altered stored textbook text and could substitute the wrong subject — unacceptable for medical content, and it conflicts with prompts asking for source terminology.
+
+### Cache Correctness
+- **Problem:** qdrant-client 1.17 removed `.search()`; the AttributeError was caught, so the semantic cache never hit. The cache key also ignored prompt version and settings, and hallucinated or A/B answers were cached.
+- **Decision:** Use `query_points()`; key both levels by a settings "variant" (prompt version, decomposition, hybrid); skip caching A/B runs and answers that fail the guardrail. Pinned `requirements.txt` so dependency upgrades can't silently break APIs again.
+
+### Reasoning-Model Token Budgets
+- **Problem:** `gpt-oss-120b` spends completion tokens on reasoning. The classifier (`max_tokens=4`) and LLM guardrail (`max_tokens=80`) always returned empty strings, so every query was "COMPLEX" and the LLM fallback could never flag a hallucination.
+- **Decision:** Removed the classifier (it only skipped decomposition, which the decomposer already handles). Raised budgets: guardrail 512, decomposer 1024, generation 2048 (ceilings, not cost).
+
+### Single Retrieval Path
+- **Decision:** `services.retrieval.retrieve()` replaces four copies of dense → BM25 → RRF → rerank → expand in `app.py` and `benchmark.py`. The benchmark now uses parent-section contexts and the cosine guardrail, like production, so its numbers are not comparable with earlier runs.
+
+### RAGAS Scores
+- **Problem:** The eval thread wrote to `st.session_state`, which without a script context goes to Streamlit's global mock state — scores never reached the user. `answer_relevancy` requests `n=3`, which Groq rejects; RAGAS retried until timeout and returned `nan` (visible in the benchmark tables above).
+- **Decision:** Write into the plain `session_state["ragas_results"]` dict; wrap `ChatGroq` with `LangchainLLMWrapper(bypass_n=True)`; reuse the app's loaded embeddings.

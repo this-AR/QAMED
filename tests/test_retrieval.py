@@ -58,3 +58,23 @@ def test_truncate_parent_keeps_leaf_when_trimming():
     parent = f"{before} {leaf} {after}"
     truncated = truncate_parent(parent, parent.find(leaf), len(leaf), max_tokens=token_length(leaf) + 4)
     assert leaf in truncated
+
+
+def test_bm25_tokenizer_ignores_punctuation():
+    from services.retrieval import bm25_search, bm25_tokenize
+    corpus = [_doc("a", "Contents of the canal, in males."), _doc("b", "kidney"), _doc("c", "liver")]
+    bm25 = BM25Okapi([bm25_tokenize(d.page_content) for d in corpus])
+    assert [d.metadata["chunk_id"] for d in bm25_search("canal?", bm25, corpus)] == ["a"]
+
+
+def test_build_bm25_index_pages_through_scroll():
+    from types import SimpleNamespace
+    from services.retrieval import build_bm25_index
+
+    class FakeClient:
+        def scroll(self, collection_name, limit, offset=None, with_payload=True, with_vectors=False):
+            page = lambda i: SimpleNamespace(payload={"page_content": f"chunk {i}", "metadata": {"chunk_id": str(i)}})
+            return ([page(1), page(2)], "next") if offset is None else ([page(3)], None)
+
+    _, corpus = build_bm25_index(FakeClient(), "c")
+    assert [d.page_content for d in corpus] == ["chunk 1", "chunk 2", "chunk 3"]

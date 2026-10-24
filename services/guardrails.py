@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import pysbd
 
@@ -54,7 +54,7 @@ _SEGMENTER = pysbd.Segmenter(language="en", clean=False)
 @dataclass
 class GuardrailResult:
     is_grounded: bool       # True = safe to show, False = potential hallucination
-    label: str              # "GROUNDED" or "HALLUCINATED"
+    label: str              # "GROUNDED", "HALLUCINATED" or "UNVERIFIED" (LLM check failed)
     explanation: str        # Brief explanation
     raw_output: str         # Full raw output for debugging
     avg_similarity: float | None = None   # cosine similarity score (Tier 1)
@@ -160,8 +160,9 @@ def _llm_guardrail(
         )
         raw = response.choices[0].message.content.strip()
     except Exception as exc:
-        logger.warning("LLM guardrail fallback failed — treating as grounded: %s", exc)
-        return True, "GROUNDED", f"LLM fallback failed: {exc}"
+        # Fail closed: an unchecked answer must not be badged grounded or cached
+        logger.warning("LLM guardrail fallback failed — answer unverified: %s", exc)
+        return False, "UNVERIFIED", f"LLM fallback failed: {exc}"
 
     first_line = raw.split("\n")[0].strip().upper()
     rest_lines = "\n".join(raw.split("\n")[1:]).strip()

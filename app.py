@@ -19,7 +19,7 @@ import streamlit as st
 from config import GROQ_MODEL, DEFAULT_PROMPT_VERSION, MAX_PARENT_CONTEXT_TOKENS, BM25_TOP_K, DENSE_TOP_K, RRF_K, USE_HYBRID_SEARCH
 from prompts import PROMPT_TEMPLATES, resolve_prompt_version
 
-from services.llm import extract_subquestions, classify_query, build_prompt, stream_groq_answer
+from services.llm import extract_subquestions, build_prompt, stream_groq_answer
 from services.retrieval import load_models_and_clients, rerank_docs, expand_to_parents, bm25_search, rrf_fusion
 from services.cache import check_cache, store_in_cache, CacheResult
 from services.guardrails import check_hallucination
@@ -194,23 +194,9 @@ if st.button("Ask", type="primary") and query.strip():
                 "trace_id": trace_id,
             }
         else:
-            # ── Query classification + decomposition ──────────────────────────
-            t_classify = Timer()
-            classification_label, classifier_raw = classify_query(groq_client, GROQ_MODEL, query)
-            tracer.log_generation(
-                trace,
-                name="classification",
-                prompt=query,
-                completion=classification_label,
-                model=GROQ_MODEL,
-                latency_ms=t_classify.elapsed_ms(),
-                metadata={"label": classification_label},
-            )
-
+            # ── Query decomposition ───────────────────────────────────────────
             t_decomp = Timer()
-            if classification_label == "SIMPLE":
-                subqueries = [query]
-            elif use_decomposition:
+            if use_decomposition:
                 subqueries = extract_subquestions(groq_client, GROQ_MODEL, query)
             else:
                 subqueries = [query]
@@ -222,22 +208,6 @@ if st.button("Ask", type="primary") and query.strip():
                 completion=str(subqueries),
                 model=GROQ_MODEL,
                 latency_ms=t_decomp.elapsed_ms(),
-            )
-
-            # Log classification decision
-            st.session_state["prompt_runs"].append(
-                {
-                    "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-                    "query": query,
-                    "subquery": None,
-                    "prompt_version": None,
-                    "model": "groq-classifier",
-                    "sources_used": 0,
-                    "classification": classification_label,
-                    "classifier_output": classifier_raw,
-                    "skipped_rag": classification_label == "SIMPLE",
-                    "cache_hit": False,
-                }
             )
 
             if not subqueries:

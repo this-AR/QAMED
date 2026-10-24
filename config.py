@@ -13,7 +13,7 @@ load_dotenv()
 # ── Qdrant ────────────────────────────────────────────────────────────────────
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
-COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "medical_documents")
+COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "medical_documents_v2")
 
 # ── Groq LLM ─────────────────────────────────────────────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")

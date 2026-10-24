@@ -6,41 +6,6 @@ Each function handles a self-contained UI block.
 """
 
 import streamlit as st
-import pysbd
-
-_SEGMENTER = pysbd.Segmenter(language="en", clean=False)
-
-
-def render_simple_answer(top_doc, query: str, doc_store=None):
-    """Render the short extracted answer for SIMPLE queries."""
-    # Start with the chunk content
-    text_to_segment = top_doc.page_content.strip()
-    
-    # If we have access to the SQLite doc store, fetch the original un-chopped text
-    # starting exactly at the chunk's offset to guarantee full sentences!
-    if doc_store:
-        parent_id = top_doc.metadata.get("parent_id")
-        if parent_id:
-            parent_data = doc_store.get_parent(parent_id)
-            if parent_data:
-                offset = top_doc.metadata.get("leaf_offset", 0)
-                # Take a generous slice of the parent text starting from the exact chunk offset
-                text_to_segment = parent_data["text"][offset:offset+1000].strip()
-
-    # PySBD-aware sentence splitting — handles Dr., Fig., M. tuberculosis etc.
-    sentences = _SEGMENTER.segment(text_to_segment)
-    # Increase from 2 to 5 sentences to provide a more detailed definition
-    short_answer = " ".join(s.strip() for s in sentences[:5] if s.strip())
-
-    st.subheader("Extracted answer (SIMPLE)")
-    st.markdown(short_answer)
-
-    meta = top_doc.metadata or {}
-    st.markdown(
-        f"**Source:** Chapter: {meta.get('chapter', 'N/A')} | "
-        f"Page: {meta.get('book_page', 'N/A')} | "
-        f"Book: {meta.get('book_name', 'N/A')}"
-    )
 
 
 def render_sources(top_docs: list):

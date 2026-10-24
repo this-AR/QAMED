@@ -126,7 +126,7 @@ def render_active_response(data: dict):
                 render_sources(item["top_docs"])
                 ragas_key = item.get("ragas_key")
                 if ragas_key:
-                    render_ragas_scores(st.session_state.get(ragas_key))
+                    render_ragas_scores(st.session_state["ragas_results"].get(ragas_key))
 
         st.caption(f"Completed in {data['elapsed']:.2f}s")
 
@@ -289,7 +289,10 @@ if st.button("Ask", type="primary") and query.strip():
                     )
 
                     t_gen = Timer()
-                    answer_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, system_msg, user_msg))
+                    # Placeholder so a guardrail retry can replace the first answer
+                    answer_slot = st.empty()
+                    with answer_slot.container():
+                        answer_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, system_msg, user_msg))
 
                     tracer.log_generation(
                         trace,
@@ -302,7 +305,7 @@ if st.button("Ask", type="primary") and query.strip():
                     )
 
                     t_guard = Timer()
-                    guardrail = check_hallucination(answer_text, context_chunks, groq_client, GROQ_MODEL, embedding_fn=_embed_query)
+                    guardrail = check_hallucination(answer_text, context_chunks, groq_client, GROQ_MODEL, embed_batch_fn=vectorstore.embeddings.embed_documents)
                     tracer.log_generation(
                         trace,
                         name=f"guardrail-{idx}",
@@ -322,9 +325,11 @@ if st.button("Ask", type="primary") and query.strip():
                             "Do not infer or extrapolate under any circumstances."
                         )
                         t_regen = Timer()
-                        answer_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, stricter_system, user_msg))
+                        answer_slot.empty()
+                        with answer_slot.container():
+                            answer_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, stricter_system, user_msg))
 
-                        guardrail = check_hallucination(answer_text, context_chunks, groq_client, GROQ_MODEL, embedding_fn=_embed_query)
+                        guardrail = check_hallucination(answer_text, context_chunks, groq_client, GROQ_MODEL, embed_batch_fn=vectorstore.embeddings.embed_documents)
                         tracer.log_generation(
                             trace,
                             name=f"guardrail-retry-{idx}",
@@ -357,15 +362,16 @@ if st.button("Ask", type="primary") and query.strip():
                         query=subquery,
                         answer=answer_text,
                         contexts=context_chunks,
-                        session_state=st.session_state,
-                        session_key=ragas_key,
+                        results=st.session_state["ragas_results"],
+                        key=ragas_key,
+                        embeddings=vectorstore.embeddings,
                         tracer=tracer,
                         trace_id=trace_id,
                     )
 
                     render_rating(idx, subquery, trace_id)
                     render_sources(top_docs)
-                    render_ragas_scores(st.session_state.get(ragas_key))
+                    render_ragas_scores(st.session_state["ragas_results"].get(ragas_key))
 
                     full_answer_parts.append(answer_text)
                     full_sources_text_parts.append(

@@ -25,7 +25,7 @@ Benefits over the old pure-LLM approach:
 
 Public API:
     check_hallucination(answer, context_chunks, groq_client, model,
-                        embedding_fn=None) -> GuardrailResult
+                        embed_batch_fn=None) -> GuardrailResult
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 def _cosine_guardrail(
     answer: str,
     context_chunks: list[str],
-    embedding_fn,
+    embed_batch_fn,
 ) -> tuple[str, float]:
     """
     Returns (verdict, avg_max_similarity).
@@ -89,12 +89,12 @@ def _cosine_guardrail(
     if not sentences:
         return "GROUNDED", 1.0   # nothing to check
 
-    # Embed all context chunks once
-    chunk_vecs = [embedding_fn(c) for c in context_chunks]
+    # Embed contexts and sentences in a single batch
+    vecs = embed_batch_fn(list(context_chunks) + sentences)
+    chunk_vecs, sent_vecs = vecs[:len(context_chunks)], vecs[len(context_chunks):]
 
     max_sims = []
-    for sent in sentences:
-        sent_vec = embedding_fn(sent)
+    for sent_vec in sent_vecs:
         sims = [_cosine_similarity(sent_vec, cv) for cv in chunk_vecs]
         max_sims.append(max(sims) if sims else 0.0)
 
@@ -179,7 +179,7 @@ def check_hallucination(
     context_chunks: list[str],
     groq_client,
     model: str,
-    embedding_fn=None,
+    embed_batch_fn=None,
 ) -> GuardrailResult:
     """
     Check whether the answer is grounded in the provided context.
@@ -189,7 +189,7 @@ def check_hallucination(
         context_chunks: List of raw chunk strings used as context.
         groq_client:    Initialized Groq client (used only for LLM fallback).
         model:          Groq model name (used only for LLM fallback).
-        embedding_fn:   Optional callable (str -> list[float]). If provided,
+        embed_batch_fn: Optional callable (list[str] -> list[list[float]]). If provided,
                         uses fast cosine similarity as Tier 1. If None,
                         falls back directly to LLM-only mode.
 
@@ -207,9 +207,9 @@ def check_hallucination(
         )
 
     # ── Tier 1: Cosine Similarity ─────────────────────────────────────────────
-    if embedding_fn is not None:
+    if embed_batch_fn is not None:
         try:
-            verdict, avg_sim = _cosine_guardrail(answer, context_chunks, embedding_fn)
+            verdict, avg_sim = _cosine_guardrail(answer, context_chunks, embed_batch_fn)
             logger.info("Cosine guardrail: verdict=%s avg_sim=%.3f", verdict, avg_sim)
 
             if verdict == "GROUNDED":

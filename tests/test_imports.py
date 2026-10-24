@@ -75,10 +75,9 @@ def test_services_observability_imports():
 
 def test_ui_components_imports():
     from ui.components import (
-        render_simple_answer, render_sources, render_rating, render_run_history,
+        render_sources, render_rating, render_run_history,
         render_cache_badge, render_guardrail_badge, render_ragas_scores,
     )
-    assert callable(render_simple_answer)
     assert callable(render_sources)
     assert callable(render_rating)
     assert callable(render_run_history)

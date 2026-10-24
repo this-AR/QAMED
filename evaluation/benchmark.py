@@ -7,8 +7,8 @@ from datetime import datetime
 # Make sure we can import from the parent directory
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import GROQ_MODEL, GROQ_API_KEY, EMBEDDING_MODEL_NAME, MAX_PARENT_CONTEXT_TOKENS, BM25_TOP_K, DENSE_TOP_K, RRF_K
-from services.retrieval import load_models_and_clients, bm25_search, rrf_fusion, rerank_docs, expand_to_parents
+from config import GROQ_MODEL, GROQ_API_KEY, EMBEDDING_MODEL_NAME
+from services.retrieval import load_models_and_clients, retrieve
 from services.llm import build_prompt, stream_groq_answer
 from services.guardrails import check_hallucination
 from evaluation.test_questions import TEST_QUESTIONS
@@ -27,8 +27,6 @@ def run_benchmark():
     llm = ChatGroq(model=GROQ_MODEL, api_key=GROQ_API_KEY, temperature=0)
     embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
     
-    retriever = vectorstore.as_retriever(search_kwargs={"k": DENSE_TOP_K})
-    
     methods = ["hybrid", "dense"]
     prompts = ["v1", "v2", "v3"]
     
@@ -39,16 +37,11 @@ def run_benchmark():
         
         # We can pre-calculate the retrieved chunks for both methods since they don't depend on the prompt
         t0 = time.time()
-        dense_docs = retriever.invoke("query: " + query)
-        dense_top = rerank_docs(reranker, query, dense_docs, top_n=6)
-        dense_parents = expand_to_parents(dense_top, doc_store, MAX_PARENT_CONTEXT_TOKENS)
+        dense_top, dense_parents = retrieve(query, vectorstore, reranker, doc_store, bm25_index, bm25_corpus, hybrid=False)
         t_dense_retrieval = time.time() - t0
-        
+
         t0 = time.time()
-        sparse_docs = bm25_search(query, bm25_index, bm25_corpus, top_k=BM25_TOP_K)
-        fused_docs = rrf_fusion(dense_docs, sparse_docs, k=RRF_K)
-        hybrid_top = rerank_docs(reranker, query, fused_docs, top_n=6)
-        hybrid_parents = expand_to_parents(hybrid_top, doc_store, MAX_PARENT_CONTEXT_TOKENS)
+        hybrid_top, hybrid_parents = retrieve(query, vectorstore, reranker, doc_store, bm25_index, bm25_corpus, hybrid=True)
         t_hybrid_retrieval = time.time() - t0
         
         # Calculate overlap
@@ -62,7 +55,8 @@ def run_benchmark():
             top_docs = hybrid_top if is_hybrid else dense_top
             parent_sections = hybrid_parents if is_hybrid else dense_parents
             retrieval_latency = t_hybrid_retrieval if is_hybrid else t_dense_retrieval
-            context_chunks = [doc.page_content for doc in top_docs]
+            # Same contexts the app passes to the guardrail and RAGAS
+            context_chunks = [p["text"] for p in parent_sections] if parent_sections else [doc.page_content for doc in top_docs]
             
             for prompt_ver in prompts:
                 print(f"Running config: {method} + {prompt_ver}")
@@ -72,7 +66,7 @@ def run_benchmark():
                 answer = "".join(list(stream_groq_answer(groq_client, GROQ_MODEL, sys_msg, usr_msg)))
                 gen_latency = time.time() - t0
                 
-                guardrail = check_hallucination(answer, context_chunks, groq_client, GROQ_MODEL)
+                guardrail = check_hallucination(answer, context_chunks, groq_client, GROQ_MODEL, embedding_fn=vectorstore.embeddings.embed_query)
                 
                 # RAGAS evaluation
                 dataset = Dataset.from_dict({

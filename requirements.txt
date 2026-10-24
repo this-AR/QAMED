@@ -10,7 +10,6 @@ qdrant-client==1.17.1
 sentence-transformers==5.3.0
 transformers==5.4.0
 torch==2.12.1
-sentencepiece==0.2.1
 langchain-text-splitters==1.1.1
 pysbd==0.3.4
 # v1.5 additions

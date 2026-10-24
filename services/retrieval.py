@@ -5,6 +5,8 @@ Handles model/client initialization, document retrieval, reranking,
 and parent-child context expansion.
 """
 
+import re
+
 from groq import Groq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
@@ -74,15 +76,27 @@ def load_models_and_clients():
 
 
 # ── Hybrid Retrieval (BM25 + RRF) ────────────────────────────────────────────
+def bm25_tokenize(text: str) -> list[str]:
+    """Lowercase word tokens; punctuation is dropped so 'canal?' matches 'canal,'."""
+    return re.findall(r"\w+", text.lower())
+
+
 def build_bm25_index(qdrant_client: QdrantClient, collection_name: str):
     """Scroll Qdrant collection, tokenize text, build BM25 index."""
+    points = []
+    offset = None
     try:
-        points, next_page_offset = qdrant_client.scroll(
-            collection_name=collection_name,
-            limit=10000,
-            with_payload=True,
-            with_vectors=False,
-        )
+        while True:
+            page, offset = qdrant_client.scroll(
+                collection_name=collection_name,
+                limit=10000,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            points.extend(page)
+            if offset is None:
+                break
     except Exception:
         points = []
 
@@ -95,7 +109,7 @@ def build_bm25_index(qdrant_client: QdrantClient, collection_name: str):
         metadata = payload.get("metadata", {})
         doc = Document(page_content=text, metadata=metadata)
         corpus_docs.append(doc)
-        tokenized_corpus.append(text.lower().split())
+        tokenized_corpus.append(bm25_tokenize(text))
 
     bm25_index = BM25Okapi(tokenized_corpus) if tokenized_corpus else None
     return bm25_index, corpus_docs
@@ -106,8 +120,7 @@ def bm25_search(query: str, bm25_index: BM25Okapi, corpus_docs: list, top_k: int
     if not bm25_index or not corpus_docs:
         return []
     
-    tokenized_query = query.lower().split()
-    scores = bm25_index.get_scores(tokenized_query)
+    scores = bm25_index.get_scores(bm25_tokenize(query))
     
     ranked = sorted(zip(corpus_docs, scores), key=lambda x: x[1], reverse=True)
     return [doc for doc, score in ranked[:top_k] if score > 0]

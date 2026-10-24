@@ -52,7 +52,9 @@ def load_models_and_clients():
     if not GROQ_API_KEY:
         raise ValueError("Missing GROQ_API_KEY in environment variables.")
 
-    groq_client = Groq(api_key=GROQ_API_KEY)
+    # Free-tier TPM limits are hit within one multi-part question; the SDK honours
+    # Groq's retry-after on 429s, so allow enough retries to wait out the window
+    groq_client = Groq(api_key=GROQ_API_KEY, max_retries=5)
     qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, timeout=60)
 
     embedding_model = HuggingFaceEmbeddings(

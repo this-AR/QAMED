@@ -135,17 +135,16 @@ def render_ragas_scores(scores):
     """
     with st.expander("📊 Evaluation scores (RAGAS)"):
         if scores is None:
-            st.info("Evaluation running in background… refresh in a moment.")
+            # A browser refresh starts a new session and loses scores; any rerun shows them
+            st.info("Evaluation running in background… scores appear on your next interaction (e.g. submitting a rating).")
         elif scores.error:
             st.warning(f"RAGAS evaluation failed: {scores.error}")
         else:
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
                 _score_metric("Faithfulness", scores.faithfulness)
             with col2:
                 _score_metric("Answer Relevancy", scores.answer_relevancy)
-            with col3:
-                _score_metric("Context Precision", scores.context_precision)
 
 
 def _score_metric(label: str, value: float | None):

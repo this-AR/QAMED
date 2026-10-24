@@ -156,7 +156,7 @@ def _llm_guardrail(
                 {"role": "user", "content": user_msg},
             ],
             temperature=0,
-            max_tokens=80,
+            max_tokens=512,  # headroom: reasoning models spend tokens before answering
         )
         raw = response.choices[0].message.content.strip()
     except Exception as exc:

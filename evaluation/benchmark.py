@@ -18,13 +18,15 @@ from datasets import Dataset
 from ragas import evaluate
 from ragas.metrics import faithfulness, answer_relevancy
 from langchain_groq import ChatGroq
+from ragas.llms import LangchainLLMWrapper
 from langchain_huggingface import HuggingFaceEmbeddings
 
 def run_benchmark():
     print("Loading models and clients...")
     groq_client, vectorstore, reranker, doc_store, bm25_index, bm25_corpus = load_models_and_clients()
     
-    llm = ChatGroq(model=GROQ_MODEL, api_key=GROQ_API_KEY, temperature=0)
+    # bypass_n: Groq rejects n>1, which answer_relevancy requests (n=3)
+    llm = LangchainLLMWrapper(ChatGroq(model=GROQ_MODEL, api_key=GROQ_API_KEY, temperature=0), bypass_n=True)
     embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
     
     methods = ["hybrid", "dense"]

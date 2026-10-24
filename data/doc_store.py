@@ -1,7 +1,7 @@
 import sqlite3
 import json
 import logging
-from typing import Optional, List, Dict
+from typing import Optional, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -71,32 +71,6 @@ class DocumentStore:
                 'text': row['text'],
                 'token_count': row['token_count']
             }
-
-    def get_parents_batch(self, parent_ids: List[str]) -> List[Dict]:
-        """Retrieve multiple parent sections by ID."""
-        if not parent_ids:
-            return []
-            
-        placeholders = ','.join('?' * len(parent_ids))
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                f'SELECT * FROM parents WHERE parent_id IN ({placeholders})',
-                parent_ids
-            ).fetchall()
-            
-            results = []
-            for row in rows:
-                results.append({
-                    'parent_id': row['parent_id'],
-                    'book_name': row['book_name'],
-                    'chapter': row['chapter'],
-                    'section': row['section'],
-                    'pages': json.loads(row['pages']) if row['pages'] else [],
-                    'text': row['text'],
-                    'token_count': row['token_count']
-                })
-            return results
 
     def clear_book(self, book_name: str) -> None:
         """Delete all parent sections for a specific book."""

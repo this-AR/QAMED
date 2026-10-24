@@ -84,7 +84,8 @@ source qamed-env/bin/activate  # On Windows: qamed-env\Scripts\activate
 ### Step 2: Install Dependencies
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt          # app only (what the HF Space installs)
+pip install -r requirements-ingest.txt   # adds Docling etc. for ingestion and tests
 ```
 
 ### Step 3: Environment Variables

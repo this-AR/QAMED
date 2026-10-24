@@ -1,19 +1,19 @@
 """
 QAMed — RAGAS Async Evaluation Pipeline (v1.5)
 
-Runs RAGAS faithfulness + answer_relevancy + context_precision metrics
-asynchronously in a background thread so the user sees their answer
-immediately and scores appear after a few seconds.
+Runs RAGAS faithfulness + answer_relevancy metrics asynchronously in a
+background thread so the user sees their answer immediately and scores
+appear on the next rerun.
 
 LLM backend: langchain-groq (uses existing GROQ_API_KEY, no new cost beyond
 ~500 extra tokens per evaluation call).
 
 Public API:
-    run_eval_async(query, answer, contexts, session_state_key, tracer)
-        → fires background thread, writes results to st.session_state
+    run_eval_async(query, answer, contexts, results, key, embeddings, tracer)
+        → fires background thread, writes RagasScores to results[key]
 
-    RagasScores  — dataclass with faithfulness, answer_relevancy,
-                   context_precision fields (all 0.0–1.0 or None on error)
+    RagasScores  — dataclass with faithfulness, answer_relevancy
+                   fields (all 0.0–1.0 or None on error)
 """
 
 from __future__ import annotations
@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 class RagasScores:
     faithfulness: float | None = None          # Is the answer grounded in context?
     answer_relevancy: float | None = None      # Does the answer address the question?
-    context_precision: float | None = None     # Were the retrieved chunks useful?
     error: str | None = None                   # Non-None if evaluation failed
     query: str = ""
 
@@ -43,13 +42,14 @@ def _run_ragas(
     query: str,
     answer: str,
     contexts: list[str],
-    session_state: dict,
-    session_key: str,
+    results: dict,
+    key: str,
+    embeddings,
     tracer=None,
     trace_id: str | None = None,
 ) -> None:
     """
-    Execute RAGAS evaluation and write results to session_state[session_key].
+    Execute RAGAS evaluation and write results to results[key].
     Always runs in a daemon thread — never blocks the Streamlit main thread.
     """
     from config import GROQ_API_KEY, GROQ_MODEL  # imported inside thread to avoid circular
@@ -58,23 +58,14 @@ def _run_ragas(
 
     try:
         # ── Lazy imports to avoid slowing app startup ──────────────────────
-        import sys
-        if "langchain_community.chat_models.vertexai" not in sys.modules:
-            import types
-            dummy = types.ModuleType("langchain_community.chat_models.vertexai")
-            dummy.ChatVertexAI = type("ChatVertexAI", (object,), {})
-            sys.modules["langchain_community.chat_models.vertexai"] = dummy
-
         import pandas as pd
         from datasets import Dataset  # type: ignore
         from ragas import evaluate  # type: ignore
         from ragas.metrics import (  # type: ignore
             faithfulness,
             answer_relevancy,
-            context_precision,
         )
         from langchain_groq import ChatGroq  # type: ignore
-        from langchain_huggingface import HuggingFaceEmbeddings  # type: ignore
 
         # ── Build dataset ──────────────────────────────────────────────────
         data = {
@@ -91,10 +82,6 @@ def _run_ragas(
             api_key=GROQ_API_KEY,
             temperature=0,
         )
-
-        # Reuse the same embedding model config as the main app
-        from config import EMBEDDING_MODEL_NAME
-        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
 
         # ── Run evaluation ─────────────────────────────────────────────────
         result = evaluate(
@@ -141,7 +128,7 @@ def _run_ragas(
         scores.error = str(exc)
         logger.warning("RAGAS evaluation failed: %s", exc)
     finally:
-        session_state[session_key] = scores
+        results[key] = scores
 
 
 def _safe_float(val: Any) -> float | None:
@@ -157,33 +144,37 @@ def run_eval_async(
     query: str,
     answer: str,
     contexts: list[str],
-    session_state: dict,
-    session_key: str,
+    results: dict,
+    key: str,
+    embeddings,
     tracer=None,
     trace_id: str | None = None,
 ) -> None:
     """
     Fire a background thread to evaluate the answer with RAGAS.
-    Results are written to session_state[session_key] when done.
+    Results are written to results[key] when done.
 
-    The caller should poll session_state[session_key] (e.g. via st.rerun
-    or checking in a later render pass) to display scores.
+    The caller should read results[key] in a later render pass to display scores.
 
     Args:
-        query:         The user's original question.
-        answer:        The generated answer text.
-        contexts:      List of raw chunk strings used as retrieval context.
-        session_state: Reference to st.session_state (or any dict).
-        session_key:   Key to write the RagasScores result into.
-        tracer:        Optional Langfuse tracer for logging.
-        trace_id:      Optional Langfuse trace ID to attach scores to.
+        query:       The user's original question.
+        answer:      The generated answer text.
+        contexts:    List of raw chunk strings used as retrieval context.
+        results:     A plain dict to write into. Pass a dict stored in
+                     st.session_state, not st.session_state itself: writes to
+                     st.session_state from a background thread have no script
+                     context and never reach the user's session.
+        key:         Key to write the RagasScores result into.
+        embeddings:  Already-loaded LangChain embeddings (reused, not reloaded).
+        tracer:      Optional Langfuse tracer for logging.
+        trace_id:    Optional Langfuse trace ID to attach scores to.
     """
-    session_state[session_key] = None  # mark as "pending"
+    results[key] = None  # mark as "pending"
 
     thread = threading.Thread(
         target=_run_ragas,
-        args=(query, answer, contexts, session_state, session_key, tracer, trace_id),
+        args=(query, answer, contexts, results, key, embeddings, tracer, trace_id),
         daemon=True,
-        name=f"ragas-eval-{session_key}",
+        name=f"ragas-eval-{key}",
     )
     thread.start()

@@ -121,6 +121,22 @@ def test_parent_expansion_deduplicates(tmp_path):
     assert len(expanded) == 1
     assert expanded[0]["text"] == "Shared parent text"
 
+def test_parent_expansion_keeps_far_leaf_of_truncated_parent(tmp_path):
+    """A second leaf outside the first leaf's truncated window is still passed on."""
+    store = DocumentStore(str(tmp_path / "far.db"))
+    first = "The deep inguinal ring lies above the midpoint of the inguinal ligament."
+    last = "The saphenous nerve accompanies the femoral artery into the adductor canal."
+    filler = " ".join(f"Filler sentence number {i} about the abdominal wall." for i in range(60))
+    parent = f"{first} {filler} {last}"
+    store.store_parent("p_long", {"text": parent, "book_name": "B", "token_count": token_length(parent)})
+
+    docs = [
+        Document(page_content=first, metadata={"parent_id": "p_long", "leaf_offset": 0}),
+        Document(page_content=last, metadata={"parent_id": "p_long", "leaf_offset": parent.find(last)}),
+    ]
+    texts = " ".join(p["text"] for p in expand_to_parents(docs, store, max_tokens=60))
+    assert first in texts and last in texts
+
 def _docling_doc(text, page, headings):
     return Document(page_content=text, metadata={"dl_meta": {
         "doc_items": [{"label": "text", "prov": [{"page_no": page}]}],

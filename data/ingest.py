@@ -51,6 +51,7 @@ from config import (
 )
 from data.doc_store import DocumentStore
 from services.retrieval import token_length
+from services.cache import clear_cache
 
 SENTENCE_SEGMENTER = pysbd.Segmenter(language="en", clean=False)
 
@@ -593,9 +594,6 @@ def main():
     ensure_collection(qdrant_client, args.collection, vector_size=768)
 
     book_name = os.path.basename(args.pdf)
-    
-    if args.force:
-        reingest_book(qdrant_client, args.collection, book_name, doc_store)
 
     embedding_model = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
 
@@ -622,6 +620,10 @@ def main():
     )
     docs = loader.load()
 
+    # Delete only after the slow, crash-prone parse, so a failure leaves the live book intact
+    if args.force:
+        reingest_book(qdrant_client, args.collection, book_name, doc_store)
+
     print("Chunking hierarchically...")
     chunks = hierarchical_chunk(docs, book_name, doc_store)
 
@@ -638,6 +640,9 @@ def main():
     vectorstore.add_documents(chunks, ids=ids)
 
     print(f"[OK] Successfully added {len(chunks)} chunks to '{args.collection}'")
+
+    # Cached answers were built from the old chunks
+    clear_cache(qdrant_client)
 
 
 if __name__ == "__main__":

@@ -21,7 +21,11 @@ from config import (
     GROQ_API_KEY,
     COLLECTION_NAME,
     EMBEDDING_MODEL_NAME,
-    DOC_STORE_PATH
+    DOC_STORE_PATH,
+    DENSE_TOP_K,
+    BM25_TOP_K,
+    RRF_K,
+    MAX_PARENT_CONTEXT_TOKENS,
 )
 from data.doc_store import DocumentStore
 
@@ -113,20 +117,33 @@ def rrf_fusion(dense_docs: list, sparse_docs: list, k: int = 60) -> list:
     """Reciprocal Rank Fusion of dense and sparse results."""
     rrf_scores = {}
 
-    for rank, doc in enumerate(dense_docs):
-        doc_id = doc.metadata.get("chunk_id", str(hash(doc.page_content)))
-        if doc_id not in rrf_scores:
-            rrf_scores[doc_id] = {"doc": doc, "score": 0.0}
-        rrf_scores[doc_id]["score"] += 1.0 / (k + rank + 1)
-
-    for rank, doc in enumerate(sparse_docs):
-        doc_id = doc.metadata.get("chunk_id", str(hash(doc.page_content)))
-        if doc_id not in rrf_scores:
-            rrf_scores[doc_id] = {"doc": doc, "score": 0.0}
-        rrf_scores[doc_id]["score"] += 1.0 / (k + rank + 1)
+    for docs in (dense_docs, sparse_docs):
+        for rank, doc in enumerate(docs):
+            doc_id = doc.metadata.get("chunk_id", str(hash(doc.page_content)))
+            if doc_id not in rrf_scores:
+                rrf_scores[doc_id] = {"doc": doc, "score": 0.0}
+            rrf_scores[doc_id]["score"] += 1.0 / (k + rank + 1)
 
     ranked_items = sorted(rrf_scores.values(), key=lambda x: x["score"], reverse=True)
     return [item["doc"] for item in ranked_items]
+
+
+# ── Full Retrieval Pipeline ──────────────────────────────────────────────────
+def retrieve(subquery: str, vectorstore, reranker, doc_store: DocumentStore,
+             bm25_index, bm25_corpus: list, hybrid: bool, top_n: int = 6) -> tuple[list, list]:
+    """Dense (+ BM25 and RRF if hybrid) → rerank → expand to parent sections.
+
+    Returns: (top_docs, parent_sections)
+    """
+    dense_docs = vectorstore.similarity_search("query: " + subquery, k=DENSE_TOP_K)
+    if hybrid:
+        sparse_docs = bm25_search(subquery, bm25_index, bm25_corpus, top_k=BM25_TOP_K)
+        candidates = rrf_fusion(dense_docs, sparse_docs, k=RRF_K)
+    else:
+        candidates = dense_docs
+    top_docs = rerank_docs(reranker, subquery, candidates, top_n=top_n)
+    parent_sections = expand_to_parents(top_docs, doc_store, MAX_PARENT_CONTEXT_TOKENS)
+    return top_docs, parent_sections
 
 
 # ── Reranking Helper ─────────────────────────────────────────────────────────
@@ -184,15 +201,16 @@ def truncate_parent(parent_text: str, leaf_offset: int, leaf_length: int, max_to
     sentences = SENTENCE_SEGMENTER.segment(window_text)
     if not sentences:
         return window_text
-        
-    result = " ".join(sentences)
-    
-    # Post-truncation token count verification
+
+    # Post-truncation token count verification: trim whichever side has more
+    # text left around the leaf, so the leaf stays centred and is cut last
+    head = leaf_offset - start
+    tail = end - (leaf_offset + leaf_length)
     while sentences and token_length(" ".join(sentences)) > max_tokens:
-        if abs(start - leaf_offset) > abs(end - leaf_offset - leaf_length):
-            sentences.pop(0)  # trim from start
+        if head >= tail:
+            head -= len(sentences.pop(0))  # trim from start
         else:
-            sentences.pop()   # trim from end
+            tail -= len(sentences.pop())   # trim from end
             
     return " ".join(sentences) if sentences else ""
 

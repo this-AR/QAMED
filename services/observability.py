@@ -35,33 +35,13 @@ _tracer_instance = None
 
 # ── No-Op Tracer (used when Langfuse is not configured) ───────────────────────
 
-class _NoOpTrace:
-    """Returned by NoOpTracer.trace() — all methods do nothing."""
-    id = "noop"
-
-    def log_generation(self, *args, **kwargs):
-        pass
-
-    def generation(self, *args, **kwargs):
-        pass
-
-    def span(self, *args, **kwargs):
-        return self
-
-    def update(self, *args, **kwargs):
-        pass
-
-    def end(self, *args, **kwargs):
-        pass
-
-
 class NoOpTracer:
     """Returned when LANGFUSE_PUBLIC_KEY is absent. Zero overhead."""
     enabled = False
 
     @contextmanager
-    def trace(self, name: str, query: str = "") -> Generator[_NoOpTrace, None, None]:
-        yield _NoOpTrace()
+    def trace(self, name: str, query: str = "") -> Generator[None, None, None]:
+        yield None  # callers treat a None trace as "no tracing"
 
     def log_generation(self, *args, **kwargs):
         pass

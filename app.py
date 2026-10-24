@@ -15,6 +15,7 @@ import time
 from datetime import datetime, timezone
 
 import streamlit as st
+from groq import APIError
 
 from config import GROQ_MODEL, DEFAULT_PROMPT_VERSION, USE_HYBRID_SEARCH
 from prompts import PROMPT_TEMPLATES, resolve_prompt_version
@@ -62,12 +63,6 @@ def _cached_load_models():
 with st.spinner("Loading models and connections..."):
     try:
         groq_client, vectorstore, reranker, doc_store, bm25_index, bm25_corpus = _cached_load_models()
-        st.session_state["groq_client"] = groq_client
-        st.session_state["vectorstore"] = vectorstore
-        st.session_state["reranker"] = reranker
-        st.session_state["doc_store"] = doc_store
-        st.session_state["bm25_index"] = bm25_index
-        st.session_state["bm25_corpus"] = bm25_corpus
     except Exception as exc:
         st.error(str(exc))
         st.stop()
@@ -86,6 +81,19 @@ _qdrant_client = vectorstore.client
 
 def _retrieve(subquery: str, hybrid: bool):
     return retrieve(subquery, vectorstore, reranker, doc_store, bm25_index, bm25_corpus, hybrid)
+
+
+def _groq_failed(exc: APIError):
+    """Show a message instead of a traceback once the SDK's retries are used up."""
+    st.error(f"The language model is unavailable right now ({type(exc).__name__}). Please try again in a minute.")
+    st.stop()
+
+
+def _stream_answer(system_msg: str, user_msg: str):
+    try:
+        yield from stream_groq_answer(groq_client, GROQ_MODEL, system_msg, user_msg)
+    except APIError as exc:
+        _groq_failed(exc)
 
 
 # ── Response Renderer Helper (Reruns without re-executing LLM) ────────────────
@@ -115,6 +123,7 @@ def render_active_response(data: dict):
                     st.markdown("#### 🟢 Pure Dense")
                     st.markdown(item["dense_text"])
                     render_sources(item["dense_top"])
+                st.caption(f"Prompt version used: {item['used_prompt_version']}")
                 render_rating(item["idx"], item["subquery"], item.get("trace_id"))
             else:
                 st.markdown(item["answer_text"])
@@ -159,7 +168,6 @@ cache_variant = f"{active_prompt_version}|decomp={use_decomposition}|hybrid={USE
 # ── Main Query Handler ────────────────────────────────────────────────────────
 if st.button("Ask", type="primary") and query.strip():
     start_time = time.time()
-    st.write("---")
 
     with tracer.trace("query-pipeline", query=query) as trace:
         trace_id = getattr(trace, "trace_id", None) if trace else None
@@ -168,11 +176,6 @@ if st.button("Ask", type="primary") and query.strip():
         cache_result: CacheResult | None = check_cache(query, cache_variant, _embed_query, _qdrant_client)
 
         if cache_result is not None:
-            render_cache_badge(cache_result.hit_type, cache_result.similarity)
-            st.markdown(cache_result.answer)
-            if cache_result.sources_text:
-                with st.expander("Sources (cached)"):
-                    st.markdown(cache_result.sources_text)
             st.session_state["prompt_runs"].append(
                 {
                     "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -184,24 +187,23 @@ if st.button("Ask", type="primary") and query.strip():
                     "cache_hit": True,
                 }
             )
-            render_rating(0, query, trace_id)
-            
-            elapsed = time.time() - start_time
-            st.caption(f"Returned from cache in {elapsed:.2f}s")
-            render_run_history(st.session_state["prompt_runs"])
-
             st.session_state["active_response"] = {
                 "is_cache": True,
                 "query": query,
                 "cache_result": cache_result,
-                "elapsed": elapsed,
+                "elapsed": time.time() - start_time,
                 "trace_id": trace_id,
             }
+            render_active_response(st.session_state["active_response"])
         else:
+            st.write("---")
             # ── Query decomposition ───────────────────────────────────────────
             t_decomp = Timer()
             if use_decomposition:
-                subqueries = extract_subquestions(groq_client, GROQ_MODEL, query)
+                try:
+                    subqueries = extract_subquestions(groq_client, GROQ_MODEL, query)
+                except APIError as exc:
+                    _groq_failed(exc)
             else:
                 subqueries = [query]
                 
@@ -233,14 +235,14 @@ if st.button("Ask", type="primary") and query.strip():
                             st.markdown("#### 🔵 Hybrid (BM25 + Dense + RRF)")
                             hybrid_top, hybrid_parents = _retrieve(subquery, hybrid=True)
                             h_sys, h_usr, h_ver = build_prompt(subquery, hybrid_parents, hybrid_top, active_prompt_version)
-                            h_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, h_sys, h_usr))
+                            h_text = st.write_stream(_stream_answer(h_sys, h_usr))
                             render_sources(hybrid_top)
 
                         with col_dense:
                             st.markdown("#### 🟢 Pure Dense")
                             dense_top, dense_parents = _retrieve(subquery, hybrid=False)
                             d_sys, d_usr, d_ver = build_prompt(subquery, dense_parents, dense_top, active_prompt_version)
-                            d_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, d_sys, d_usr))
+                            d_text = st.write_stream(_stream_answer(d_sys, d_usr))
                             render_sources(dense_top)
 
                         top_docs = hybrid_top
@@ -283,6 +285,8 @@ if st.button("Ask", type="primary") and query.strip():
                     # ── Normal single-path retrieval ──────────────────────────────
                     top_docs, parent_sections = _retrieve(subquery, hybrid=USE_HYBRID_SEARCH)
                     context_chunks = [p["text"] for p in parent_sections] if parent_sections else [doc.page_content for doc in top_docs]
+                    # The embedder reads only the first 350 tokens of a parent; leaves fit whole
+                    guard_chunks = [doc.page_content for doc in top_docs] + context_chunks
 
                     system_msg, user_msg, used_prompt_version = build_prompt(
                         subquery, parent_sections, top_docs, active_prompt_version,
@@ -292,7 +296,7 @@ if st.button("Ask", type="primary") and query.strip():
                     # Placeholder so a guardrail retry can replace the first answer
                     answer_slot = st.empty()
                     with answer_slot.container():
-                        answer_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, system_msg, user_msg))
+                        answer_text = st.write_stream(_stream_answer(system_msg, user_msg))
 
                     tracer.log_generation(
                         trace,
@@ -305,7 +309,7 @@ if st.button("Ask", type="primary") and query.strip():
                     )
 
                     t_guard = Timer()
-                    guardrail = check_hallucination(answer_text, context_chunks, groq_client, GROQ_MODEL, embed_batch_fn=vectorstore.embeddings.embed_documents)
+                    guardrail = check_hallucination(answer_text, guard_chunks, groq_client, GROQ_MODEL, embed_batch_fn=vectorstore.embeddings.embed_documents)
                     tracer.log_generation(
                         trace,
                         name=f"guardrail-{idx}",
@@ -327,9 +331,9 @@ if st.button("Ask", type="primary") and query.strip():
                         t_regen = Timer()
                         answer_slot.empty()
                         with answer_slot.container():
-                            answer_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, stricter_system, user_msg))
+                            answer_text = st.write_stream(_stream_answer(stricter_system, user_msg))
 
-                        guardrail = check_hallucination(answer_text, context_chunks, groq_client, GROQ_MODEL, embed_batch_fn=vectorstore.embeddings.embed_documents)
+                        guardrail = check_hallucination(answer_text, guard_chunks, groq_client, GROQ_MODEL, embed_batch_fn=vectorstore.embeddings.embed_documents)
                         tracer.log_generation(
                             trace,
                             name=f"guardrail-retry-{idx}",

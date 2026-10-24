@@ -16,11 +16,11 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from config import GROQ_MODEL, DEFAULT_PROMPT_VERSION, MAX_PARENT_CONTEXT_TOKENS, BM25_TOP_K, DENSE_TOP_K, RRF_K, USE_HYBRID_SEARCH
+from config import GROQ_MODEL, DEFAULT_PROMPT_VERSION, USE_HYBRID_SEARCH
 from prompts import PROMPT_TEMPLATES, resolve_prompt_version
 
 from services.llm import extract_subquestions, build_prompt, stream_groq_answer
-from services.retrieval import load_models_and_clients, rerank_docs, expand_to_parents, bm25_search, rrf_fusion
+from services.retrieval import load_models_and_clients, retrieve
 from services.cache import check_cache, store_in_cache, CacheResult
 from services.guardrails import check_hallucination
 from services.observability import get_tracer, Timer
@@ -82,6 +82,10 @@ def _embed_query(text: str) -> list[float]:
 
 # ── Qdrant raw client (used by semantic cache) ────────────────────────────────
 _qdrant_client = vectorstore.client
+
+
+def _retrieve(subquery: str, hybrid: bool):
+    return retrieve(subquery, vectorstore, reranker, doc_store, bm25_index, bm25_corpus, hybrid)
 
 
 # ── Response Renderer Helper (Reruns without re-executing LLM) ────────────────
@@ -213,7 +217,6 @@ if st.button("Ask", type="primary") and query.strip():
             if not subqueries:
                 st.warning("No subquestions generated. Try rephrasing your query.")
             else:
-                retriever = vectorstore.as_retriever(search_kwargs={"k": DENSE_TOP_K})
                 full_answer_parts: list[str] = []
                 full_sources_text_parts: list[str] = []
                 subquery_data = []
@@ -225,22 +228,17 @@ if st.button("Ask", type="primary") and query.strip():
                     # ── A/B Testing Mode ──────────────────────────────────────────
                     if ab_testing:
                         col_hybrid, col_dense = st.columns(2)
-                        dense_docs = retriever.invoke("query: " + subquery)
 
                         with col_hybrid:
                             st.markdown("#### 🔵 Hybrid (BM25 + Dense + RRF)")
-                            sparse_docs = bm25_search(subquery, st.session_state["bm25_index"], st.session_state["bm25_corpus"], top_k=BM25_TOP_K)
-                            fused_docs = rrf_fusion(dense_docs, sparse_docs, k=RRF_K)
-                            hybrid_top = rerank_docs(reranker, subquery, fused_docs, top_n=6)
-                            hybrid_parents = expand_to_parents(hybrid_top, st.session_state["doc_store"], MAX_PARENT_CONTEXT_TOKENS)
+                            hybrid_top, hybrid_parents = _retrieve(subquery, hybrid=True)
                             h_sys, h_usr, h_ver = build_prompt(subquery, hybrid_parents, hybrid_top, active_prompt_version)
                             h_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, h_sys, h_usr))
                             render_sources(hybrid_top)
 
                         with col_dense:
                             st.markdown("#### 🟢 Pure Dense")
-                            dense_top = rerank_docs(reranker, subquery, dense_docs, top_n=6)
-                            dense_parents = expand_to_parents(dense_top, st.session_state["doc_store"], MAX_PARENT_CONTEXT_TOKENS)
+                            dense_top, dense_parents = _retrieve(subquery, hybrid=False)
                             d_sys, d_usr, d_ver = build_prompt(subquery, dense_parents, dense_top, active_prompt_version)
                             d_text = st.write_stream(stream_groq_answer(groq_client, GROQ_MODEL, d_sys, d_usr))
                             render_sources(dense_top)
@@ -283,14 +281,7 @@ if st.button("Ask", type="primary") and query.strip():
                         continue
 
                     # ── Normal single-path retrieval ──────────────────────────────
-                    dense_docs = retriever.invoke("query: " + subquery)
-                    if USE_HYBRID_SEARCH:
-                        sparse_docs = bm25_search(subquery, st.session_state["bm25_index"], st.session_state["bm25_corpus"], top_k=BM25_TOP_K)
-                        fused_docs = rrf_fusion(dense_docs, sparse_docs, k=RRF_K)
-                    else:
-                        fused_docs = dense_docs
-                    top_docs = rerank_docs(reranker, subquery, fused_docs, top_n=6)
-                    parent_sections = expand_to_parents(top_docs, st.session_state["doc_store"], MAX_PARENT_CONTEXT_TOKENS)
+                    top_docs, parent_sections = _retrieve(subquery, hybrid=USE_HYBRID_SEARCH)
                     context_chunks = [p["text"] for p in parent_sections] if parent_sections else [doc.page_content for doc in top_docs]
 
                     system_msg, user_msg, used_prompt_version = build_prompt(
